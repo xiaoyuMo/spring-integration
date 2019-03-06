@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -131,7 +131,7 @@ public class SubscribableRedisChannel extends AbstractMessageChannel
 	}
 
 	@Override
-	public void onInit() throws Exception {
+	public void onInit() {
 		if (this.initialized) {
 			return;
 		}
@@ -197,8 +197,13 @@ public class SubscribableRedisChannel extends AbstractMessageChannel
 	}
 
 	@Override
-	public void destroy() throws Exception {
-		this.container.destroy();
+	public void destroy() {
+		try {
+			this.container.destroy();
+		}
+		catch (Exception ex) {
+			throw new IllegalStateException("Cannot destroy " + this.container, ex);
+		}
 	}
 
 	private class MessageListenerDelegate {
@@ -214,14 +219,14 @@ public class SubscribableRedisChannel extends AbstractMessageChannel
 				SubscribableRedisChannel.this.dispatcher.dispatch(siMessage);
 			}
 			catch (MessageDispatchingException e) {
-				String topicName =
-						StringUtils.hasText(SubscribableRedisChannel.this.topicName)
+				String exceptionMessage = e.getMessage();
+				throw new MessageDeliveryException(siMessage,
+						(exceptionMessage == null ? e.getClass().getSimpleName() : exceptionMessage)
+								+ " for redis-channel '"
+								+ (StringUtils.hasText(SubscribableRedisChannel.this.topicName)
 								? SubscribableRedisChannel.this.topicName
-								: "unknown";
-				throw new MessageDeliveryException(siMessage, e.getMessage()
-						+ " for redis-channel '"
-						+ topicName
-						+ "' (" + SubscribableRedisChannel.this.getFullChannelName() + ").", e);
+								: "unknown")
+								+ "' (" + getFullChannelName() + ").", e); // NOSONAR false positive - never null
 			}
 		}
 

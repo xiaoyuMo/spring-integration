@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,8 @@
 
 package org.springframework.integration.websocket.server;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
@@ -93,7 +88,6 @@ import org.springframework.web.socket.server.RequestUpgradeStrategy;
 import org.springframework.web.socket.server.standard.TomcatRequestUpgradeStrategy;
 import org.springframework.web.socket.server.support.DefaultHandshakeHandler;
 import org.springframework.web.socket.sockjs.client.SockJsClient;
-import org.springframework.web.socket.sockjs.client.Transport;
 import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 
 /**
@@ -106,7 +100,7 @@ import org.springframework.web.socket.sockjs.client.WebSocketTransport;
 @DirtiesContext
 public class WebSocketServerTests {
 
-	private final static SpelExpressionParser PARSER = new SpelExpressionParser();
+	private static final SpelExpressionParser PARSER = new SpelExpressionParser();
 
 	@Autowired
 	@Qualifier("webSocketOutputChannel")
@@ -126,7 +120,7 @@ public class WebSocketServerTests {
 	private Lifecycle requestUpgradeStrategy;
 
 	@Test
-	public void testWebSocketOutboundMessageHandler() throws Exception {
+	public void testWebSocketOutboundMessageHandler() {
 		StompHeaderAccessor headers = StompHeaderAccessor.create(StompCommand.SUBSCRIBE);
 		headers.setSubscriptionId("subs1");
 		headers.setDestination("/queue/foo");
@@ -140,33 +134,33 @@ public class WebSocketServerTests {
 		this.webSocketOutputChannel.send(message2);
 
 		Message<?> received = this.webSocketInputChannel.receive(10000);
-		assertNotNull(received);
+		assertThat(received).isNotNull();
 		StompHeaderAccessor stompHeaderAccessor = StompHeaderAccessor.wrap(received);
-		assertEquals(StompCommand.MESSAGE.getMessageType(), stompHeaderAccessor.getMessageType());
+		assertThat(stompHeaderAccessor.getMessageType()).isEqualTo(StompCommand.MESSAGE.getMessageType());
 
 		Object receivedPayload = received.getPayload();
-		assertThat(receivedPayload, instanceOf(String.class));
-		assertEquals("Hello Spring", receivedPayload);
+		assertThat(receivedPayload).isInstanceOf(String.class);
+		assertThat(receivedPayload).isEqualTo("Hello Spring");
 
 		SubscriptionRegistry subscriptionRegistry = this.brokerHandler.getSubscriptionRegistry();
 		headers = StompHeaderAccessor.create(StompCommand.MESSAGE);
 		headers.setDestination("/queue/foo");
 		message = MessageBuilder.withPayload(ByteBuffer.allocate(0).array()).setHeaders(headers).build();
 		MultiValueMap<String, String> subscriptions = subscriptionRegistry.findSubscriptions(message);
-		assertFalse(subscriptions.isEmpty());
+		assertThat(subscriptions.isEmpty()).isFalse();
 		List<String> subscription = subscriptions.values().iterator().next();
-		assertEquals(1, subscription.size());
-		assertEquals("subs1", subscription.get(0));
+		assertThat(subscription.size()).isEqualTo(1);
+		assertThat(subscription.get(0)).isEqualTo("subs1");
 
 		Message<?> event = this.webSocketEvents.receive(10000);
-		assertNotNull(event);
-		assertThat(event.getPayload(), instanceOf(WebSocketSession.class));
+		assertThat(event).isNotNull();
+		assertThat(event.getPayload()).isInstanceOf(WebSocketSession.class);
 
 		verify(this.requestUpgradeStrategy).start();
 	}
 
 	@Test
-	public void testBrokerIsNotPresented() throws Exception {
+	public void testBrokerIsNotPresented() {
 		WebSocketInboundChannelAdapter webSocketInboundChannelAdapter =
 				new WebSocketInboundChannelAdapter(Mockito.mock(ServerWebSocketContainer.class));
 		webSocketInboundChannelAdapter.setOutputChannel(new DirectChannel());
@@ -178,8 +172,8 @@ public class WebSocketServerTests {
 			fail("IllegalStateException expected");
 		}
 		catch (Exception e) {
-			assertThat(e, instanceOf(IllegalStateException.class));
-			assertThat(e.getMessage(), containsString("WebSocket Broker Relay isn't present in the application context;"));
+			assertThat(e).isInstanceOf(IllegalStateException.class);
+			assertThat(e.getMessage()).contains("WebSocket Broker Relay isn't present in the application context;");
 		}
 
 	}
@@ -195,7 +189,7 @@ public class WebSocketServerTests {
 
 		@Bean
 		public WebSocketClient webSocketClient() {
-			return new SockJsClient(Collections.<Transport>singletonList(new WebSocketTransport(new StandardWebSocketClient())));
+			return new SockJsClient(Collections.singletonList(new WebSocketTransport(new StandardWebSocketClient())));
 		}
 
 		@Bean

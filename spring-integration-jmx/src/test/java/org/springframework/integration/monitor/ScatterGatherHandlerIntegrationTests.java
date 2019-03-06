@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2015 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,11 @@
 
 package org.springframework.integration.monitor;
 
-import static org.hamcrest.Matchers.instanceOf;
-import static org.hamcrest.Matchers.lessThan;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -89,10 +85,10 @@ public class ScatterGatherHandlerIntegrationTests {
 
 		this.inputAuctionWithoutGatherChannel.send(quoteMessage);
 		Message<?> bestQuoteMessage = this.output.receive(10000);
-		assertNotNull(bestQuoteMessage);
+		assertThat(bestQuoteMessage).isNotNull();
 		Object payload = bestQuoteMessage.getPayload();
-		assertThat(payload, instanceOf(Double.class));
-		assertThat((Double) payload, lessThan(10D));
+		assertThat(payload).isInstanceOf(Double.class);
+		assertThat((Double) payload).isLessThan(10D);
 	}
 
 	@SuppressWarnings("rawtypes")
@@ -102,10 +98,10 @@ public class ScatterGatherHandlerIntegrationTests {
 
 		this.inputAuctionWithGatherChannel.send(quoteMessage);
 		Message<?> bestQuoteMessage = this.output.receive(10000);
-		assertNotNull(bestQuoteMessage);
+		assertThat(bestQuoteMessage).isNotNull();
 		Object payload = bestQuoteMessage.getPayload();
-		assertThat(payload, instanceOf(List.class));
-		assertEquals(3, ((List) payload).size());
+		assertThat(payload).isInstanceOf(List.class);
+		assertThat(((List) payload).size()).isEqualTo(3);
 	}
 
 	@Test
@@ -114,10 +110,10 @@ public class ScatterGatherHandlerIntegrationTests {
 
 		this.distributionChannel.send(quoteMessage);
 		Message<?> bestQuoteMessage = this.output.receive(10000);
-		assertNotNull(bestQuoteMessage);
+		assertThat(bestQuoteMessage).isNotNull();
 		Object payload = bestQuoteMessage.getPayload();
-		assertThat(payload, instanceOf(Double.class));
-		assertThat((Double) payload, lessThan(10D));
+		assertThat(payload).isInstanceOf(Double.class);
+		assertThat((Double) payload).isLessThan(10D);
 	}
 
 
@@ -278,8 +274,8 @@ public class ScatterGatherHandlerIntegrationTests {
 		}
 
 		@Bean
-		public SubscribableChannel scatterAuctionWithGatherChannel() {
-			PublishSubscribeChannel channel = new PublishSubscribeChannel(Executors.newCachedThreadPool());
+		public SubscribableChannel scatterAuctionWithGatherChannel(Executor executor) {
+			PublishSubscribeChannel channel = new PublishSubscribeChannel(executor);
 			channel.setApplySequence(true);
 			return channel;
 		}
@@ -296,7 +292,8 @@ public class ScatterGatherHandlerIntegrationTests {
 		@Bean
 		@ServiceActivator(inputChannel = "inputAuctionWithGatherChannel")
 		public MessageHandler scatterGatherAuctionWithGatherChannel() {
-			ScatterGatherHandler handler = new ScatterGatherHandler(scatterAuctionWithGatherChannel(), gatherer2());
+			ScatterGatherHandler handler =
+					new ScatterGatherHandler(scatterAuctionWithGatherChannel(null), gatherer2());
 			handler.setGatherChannel(gatherChannel());
 			handler.setOutputChannel(output());
 			return handler;

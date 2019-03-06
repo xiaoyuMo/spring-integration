@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2016 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.List;
 
 import org.springframework.integration.metadata.ConcurrentMetadataStore;
+import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -31,19 +32,22 @@ import org.springframework.util.Assert;
  * same modified time as the current file.
  *
  * @author Gary Russell
+ * @author Artem Bilan
+ *
  * @since 3.0
  *
  */
 public abstract class AbstractPersistentAcceptOnceFileListFilter<F> extends AbstractFileListFilter<F>
 		implements ReversibleFileListFilter<F>, ResettableFileListFilter<F>,  Closeable {
 
-	protected final ConcurrentMetadataStore store;
+	protected final ConcurrentMetadataStore store; // NOSONAR
 
-	protected final Flushable flushableStore;
+	@Nullable
+	protected final Flushable flushableStore; // NOSONAR
 
-	protected final String prefix;
+	protected final String prefix; // NOSONAR
 
-	protected volatile boolean flushOnUpdate;
+	protected volatile boolean flushOnUpdate; // NOSONAR
 
 	private final Object monitor = new Object();
 
@@ -77,15 +81,25 @@ public abstract class AbstractPersistentAcceptOnceFileListFilter<F> extends Abst
 			String oldValue = this.store.putIfAbsent(key, newValue);
 			if (oldValue == null) { // not in store
 				flushIfNeeded();
-				return true;
+				return fileStillExists(file);
 			}
 			// same value in store
 			if (!isEqual(file, oldValue) && this.store.replace(key, oldValue, newValue)) {
 				flushIfNeeded();
-				return true;
+				return fileStillExists(file);
 			}
 			return false;
 		}
+	}
+
+	/**
+	 * Check if the file still exists; default implementation returns true.
+	 * @param file the file.
+	 * @return true if the filter should return true.
+	 * @since 4.3.19
+	 */
+	protected boolean fileStillExists(F file) {
+		return true;
 	}
 
 	/**
@@ -126,7 +140,7 @@ public abstract class AbstractPersistentAcceptOnceFileListFilter<F> extends Abst
 	 * @return The value to store for the file.
 	 */
 	private String value(F file) {
-		return Long.toString(this.modified(file));
+		return Long.toString(modified(file));
 	}
 
 	/**
@@ -137,7 +151,7 @@ public abstract class AbstractPersistentAcceptOnceFileListFilter<F> extends Abst
 	 * @return true if equal.
 	 */
 	protected boolean isEqual(F file, String value) {
-		return Long.valueOf(value) == this.modified(file);
+		return Long.valueOf(value) == modified(file);
 	}
 
 	/**
@@ -146,7 +160,7 @@ public abstract class AbstractPersistentAcceptOnceFileListFilter<F> extends Abst
 	 * @return The key.
 	 */
 	protected String buildKey(F file) {
-		return this.prefix + this.fileName(file);
+		return this.prefix + fileName(file);
 	}
 
 	/**
@@ -159,7 +173,7 @@ public abstract class AbstractPersistentAcceptOnceFileListFilter<F> extends Abst
 			try {
 				this.flushableStore.flush();
 			}
-			catch (IOException e) {
+			catch (@SuppressWarnings("unused") IOException e) {
 				// store's responsibility to log
 			}
 		}

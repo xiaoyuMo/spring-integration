@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 the original author or authors.
+ * Copyright 2017-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 
 package org.springframework.integration.support.management;
 
-import org.junit.Assert;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.Test;
 
 import org.springframework.integration.channel.QueueChannel;
@@ -25,12 +26,13 @@ import org.springframework.messaging.Message;
 
 /**
  * @author Ivan Krizsan
+ * @author Artem Bilan
  */
 public class DefaultMessageChannelMetricsTests {
 
-	protected final static int MESSAGE_COUNT = 10;
+	protected static final int MESSAGE_COUNT = 10;
 
-	protected final static long SEND_TIMEOUT = 1;
+	protected static final long SEND_TIMEOUT = 1;
 
 	@Test
 	public void errorCountWithCountsEnabledOnlySuccessTest() {
@@ -44,14 +46,9 @@ public class DefaultMessageChannelMetricsTests {
 			theMessageChannel.send(theInputMessage, SEND_TIMEOUT);
 		}
 
-		Assert.assertEquals(
-				"Message count should match number of sent messages",
-				MESSAGE_COUNT,
-				theMessageChannel.getSendCount());
-		Assert.assertEquals(
-				"Error count should indicate no errors",
-				0,
-				theMessageChannel.getSendErrorCount());
+		assertThat(theMessageChannel.getSendCount()).as("Message count should match number of sent messages")
+				.isEqualTo(MESSAGE_COUNT);
+		assertThat(theMessageChannel.getSendErrorCount()).as("Error count should indicate no errors").isEqualTo(0);
 	}
 
 	@Test
@@ -65,14 +62,10 @@ public class DefaultMessageChannelMetricsTests {
 			theMessageChannel.send(theInputMessage, SEND_TIMEOUT);
 		}
 
-		Assert.assertEquals(
-				"Message count should match number of sent messages",
-				MESSAGE_COUNT,
-				theMessageChannel.getSendCount());
-		Assert.assertEquals(
-				"Error count should indicate errors half the messages",
-				MESSAGE_COUNT / 2,
-				theMessageChannel.getSendErrorCount());
+		assertThat(theMessageChannel.getSendCount()).as("Message count should match number of sent messages")
+				.isEqualTo(MESSAGE_COUNT);
+		assertThat(theMessageChannel.getSendErrorCount()).as("Error count should indicate errors half the messages")
+				.isEqualTo(MESSAGE_COUNT / 2);
 	}
 
 }

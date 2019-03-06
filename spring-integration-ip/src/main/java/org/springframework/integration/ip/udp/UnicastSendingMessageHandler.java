@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2018 the original author or authors.
+ * Copyright 2001-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import java.net.URI;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -37,9 +38,9 @@ import org.springframework.expression.EvaluationContext;
 import org.springframework.expression.Expression;
 import org.springframework.integration.context.IntegrationContextUtils;
 import org.springframework.integration.ip.AbstractInternetProtocolSendingMessageHandler;
+import org.springframework.integration.support.utils.IntegrationUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageDeliveryException;
-import org.springframework.messaging.MessageHandlingException;
 import org.springframework.messaging.MessagingException;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 import org.springframework.util.Assert;
@@ -62,6 +63,8 @@ import org.springframework.util.StringUtils;
 public class UnicastSendingMessageHandler extends
 		AbstractInternetProtocolSendingMessageHandler implements Runnable {
 
+	private static final int DEFAULT_ACK_TIMEOUT = 5000;
+
 	private final DatagramPacketMessageMapper mapper = new DatagramPacketMessageMapper();
 
 	private final Expression destinationExpression;
@@ -79,12 +82,11 @@ public class UnicastSendingMessageHandler extends
 
 	private volatile int ackPort;
 
-	private volatile int ackTimeout = 5000;
+	private volatile int ackTimeout = DEFAULT_ACK_TIMEOUT;
 
 	private volatile int ackCounter = 1;
 
-	private volatile Map<String, CountDownLatch> ackControl =
-			Collections.synchronizedMap(new HashMap<String, CountDownLatch>());
+	private volatile Map<String, CountDownLatch> ackControl = Collections.synchronizedMap(new HashMap<>());
 
 	private volatile int soReceiveBufferSize = -1;
 
@@ -251,22 +253,25 @@ public class UnicastSendingMessageHandler extends
 	}
 
 	@Override
-	public void handleMessageInternal(Message<?> message) throws MessageHandlingException,
-			MessageDeliveryException {
+	public void handleMessageInternal(Message<?> message) {
 		if (this.acknowledge) {
 			Assert.state(this.isRunning(), "When 'acknowledge' is enabled, adapter must be running");
 			startAckThread();
 		}
 		CountDownLatch countdownLatch = null;
-		String messageId = message.getHeaders().getId().toString();
+		UUID id = message.getHeaders().getId();
+		if (id == null) {
+			id = UUID.randomUUID();
+		}
+		String messageId = id.toString();
 		try {
-			boolean waitForAck = this.waitForAck;
-			if (waitForAck) {
+			boolean waitAck = this.waitForAck;
+			if (waitAck) {
 				countdownLatch = new CountDownLatch(this.ackCounter);
 				this.ackControl.put(messageId, countdownLatch);
 			}
 			convertAndSend(message);
-			if (waitForAck) {
+			if (waitAck) {
 				try {
 					if (!countdownLatch.await(this.ackTimeout, TimeUnit.MILLISECONDS)) {
 						throw new MessagingException(message, "Failed to receive UDP Ack in "
@@ -278,12 +283,12 @@ public class UnicastSendingMessageHandler extends
 				}
 			}
 		}
-		catch (MessagingException e) {
-			throw e;
-		}
-		catch (Exception e) {
-			closeSocketIfNeeded();
-			throw new MessageHandlingException(message, "failed to send UDP packet", e);
+		catch (Exception ex) {
+			if (!(ex instanceof MessagingException)) { // NOSONAR
+				closeSocketIfNeeded();
+			}
+			throw IntegrationUtils.wrapInHandlingExceptionIfNecessary(message,
+					() -> "Failed to send UDP packet", ex);
 		}
 		finally {
 			if (countdownLatch != null) {
@@ -316,12 +321,12 @@ public class UnicastSendingMessageHandler extends
 	}
 
 	protected void convertAndSend(Message<?> message) throws Exception {
-		DatagramSocket socket;
+		DatagramSocket datagramSocket;
 		if (this.socketExpression != null) {
-			socket = this.socketExpression.getValue(this.evaluationContext, message, DatagramSocket.class);
+			datagramSocket = this.socketExpression.getValue(this.evaluationContext, message, DatagramSocket.class);
 		}
 		else {
-			socket = getSocket();
+			datagramSocket = getSocket();
 		}
 		SocketAddress destinationAddress;
 		if (this.destinationExpression != null) {
@@ -345,10 +350,17 @@ public class UnicastSendingMessageHandler extends
 			destinationAddress = getDestinationAddress();
 		}
 		DatagramPacket packet = this.mapper.fromMessage(message);
-		packet.setSocketAddress(destinationAddress);
-		socket.send(packet);
-		if (logger.isDebugEnabled()) {
-			logger.debug("Sent packet for message " + message + " to " + packet.getSocketAddress());
+		if (packet != null) {
+			packet.setSocketAddress(destinationAddress);
+			datagramSocket.send(packet);
+			if (logger.isDebugEnabled()) {
+				logger.debug("Sent packet for message " + message + " to " + packet.getSocketAddress());
+			}
+		}
+		else {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Mapper created no packet for message " + message);
+			}
 		}
 	}
 
@@ -356,6 +368,7 @@ public class UnicastSendingMessageHandler extends
 		this.socket = socket;
 	}
 
+	@Nullable
 	protected DatagramSocket getTheSocket() {
 		return this.socket;
 	}
@@ -449,9 +462,9 @@ public class UnicastSendingMessageHandler extends
 	 * @return the ackPort
 	 */
 	public int getAckPort() {
-		DatagramSocket socket = this.socket;
-		if (this.ackPort == 0 && socket != null) {
-			return socket.getLocalPort();
+		DatagramSocket datagramSocket = this.socket;
+		if (this.ackPort == 0 && datagramSocket != null) {
+			return datagramSocket.getLocalPort();
 		}
 		else {
 			return this.ackPort;
@@ -466,7 +479,7 @@ public class UnicastSendingMessageHandler extends
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		this.mapper.setBeanFactory(getBeanFactory());
 		this.evaluationContext = IntegrationContextUtils.getEvaluationContext(getBeanFactory());

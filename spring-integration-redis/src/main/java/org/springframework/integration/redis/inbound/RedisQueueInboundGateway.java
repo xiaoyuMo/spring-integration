@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2017 the original author or authors.
+ * Copyright 2014-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -141,7 +141,7 @@ public class RedisQueueInboundGateway extends MessagingGatewaySupport implements
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		if (!this.extractPayload) {
 			Assert.notNull(this.serializer, "'serializer' has to be provided where 'extractPayload == false'.");
@@ -194,6 +194,9 @@ public class RedisQueueInboundGateway extends MessagingGatewaySupport implements
 				return;
 			}
 			uuid = stringSerializer.deserialize(value);
+			if (uuid == null) {
+				return;
+			}
 			try {
 				value = this.template.boundListOps(uuid).rightPop(this.receiveTimeout, TimeUnit.MILLISECONDS);
 			}
@@ -205,25 +208,34 @@ public class RedisQueueInboundGateway extends MessagingGatewaySupport implements
 			if (value != null) {
 				if (!this.active) {
 					this.template.boundListOps(uuid).rightPush(value);
-					this.boundListOperations.rightPush(stringSerializer.serialize(uuid));
+					byte[] serialized = stringSerializer.serialize(uuid);
+					if (serialized != null) {
+						this.boundListOperations.rightPush(serialized);
+					}
 					return;
 				}
 				if (this.extractPayload) {
 					Object payload = value;
 					if (this.serializer != null) {
 						payload = this.serializer.deserialize(value);
+						if (payload == null) {
+							return;
+						}
 					}
-					requestMessage = this.getMessageBuilderFactory().withPayload(payload).build();
+					requestMessage = getMessageBuilderFactory().withPayload(payload).build();
 				}
 				else {
 					try {
 						requestMessage = (Message<Object>) this.serializer.deserialize(value);
+						if (requestMessage == null) {
+							return;
+						}
 					}
 					catch (Exception e) {
 						throw new MessagingException("Deserialization of Message failed.", e);
 					}
 				}
-				Message<?> replyMessage = this.sendAndReceiveMessage(requestMessage);
+				Message<?> replyMessage = sendAndReceiveMessage(requestMessage);
 				if (replyMessage != null) {
 					if (this.extractPayload) {
 						value = extractReplyPayload(replyMessage);
@@ -231,6 +243,9 @@ public class RedisQueueInboundGateway extends MessagingGatewaySupport implements
 					else {
 						if (this.serializer != null) {
 							value = ((RedisSerializer<Object>) this.serializer).serialize(replyMessage);
+							if (value == null) {
+								return;
+							}
 						}
 					}
 					this.template.boundListOps(uuid + QUEUE_NAME_SUFFIX).leftPush(value);
@@ -320,7 +335,8 @@ public class RedisQueueInboundGateway extends MessagingGatewaySupport implements
 	 */
 	@ManagedMetric
 	public long getQueueSize() {
-		return this.boundListOperations.size();
+		Long size = this.boundListOperations.size();
+		return size == null ? 0 : size;
 	}
 
 	/**

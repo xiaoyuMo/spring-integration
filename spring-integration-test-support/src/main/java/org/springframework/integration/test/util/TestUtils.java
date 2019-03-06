@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.format.support.DefaultFormattingConversionService;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
@@ -50,6 +51,8 @@ import org.springframework.util.StringUtils;
  * @author Gary Russell
  */
 public abstract class TestUtils {
+
+	private static final Log LOGGER = LogFactory.getLog(TestUtils.class);
 
 	/**
 	 * Obtain a value for the property from the provide object.
@@ -113,6 +116,11 @@ public abstract class TestUtils {
 		scheduler.setErrorHandler(errorHandler);
 		registerBean("taskScheduler", scheduler, context);
 		registerBean("integrationConversionService", new DefaultFormattingConversionService(), context);
+		registerBean("errorChannel",
+				(MessageChannel) (message, timeout) -> {
+					LOGGER.error(message);
+					return true;
+				}, context);
 		return context;
 	}
 
@@ -150,7 +158,8 @@ public abstract class TestUtils {
 			super();
 		}
 
-		public void registerChannel(String channelName, final MessageChannel channel) {
+		public void registerChannel(@Nullable String channelNameArg, final MessageChannel channel) {
+			String channelName = channelNameArg;
 			String componentName = getComponentNameIfNamed(channel);
 			if (componentName != null) {
 				if (channelName == null) {
@@ -174,7 +183,7 @@ public abstract class TestUtils {
 
 		private String getComponentNameIfNamed(final MessageChannel channel) {
 			Set<Class<?>> interfaces = ClassUtils.getAllInterfacesAsSet(channel);
-			final AtomicReference<String> componentName = new AtomicReference<String>();
+			final AtomicReference<String> componentName = new AtomicReference<>();
 			for (Class<?> intface : interfaces) {
 				if ("org.springframework.integration.support.context.NamedComponent".equals(intface.getName())) {
 					ReflectionUtils.doWithMethods(channel.getClass(), method -> {
@@ -235,12 +244,12 @@ public abstract class TestUtils {
 		}
 
 		@Override
-		public void handleError(Throwable t) {
-			MessageChannel errorChannel = this.resolveErrorChannel(t);
+		public void handleError(Throwable throwable) {
+			MessageChannel errorChannel = resolveErrorChannel(throwable);
 			boolean sent = false;
 			if (errorChannel != null) {
 				try {
-					sent = errorChannel.send(new ErrorMessage(t), 10000);
+					sent = errorChannel.send(new ErrorMessage(throwable), 10000);
 				}
 				catch (Throwable errorDeliveryError) { //NOSONAR
 					// message will be logged only
@@ -253,13 +262,15 @@ public abstract class TestUtils {
 				}
 			}
 			if (!sent && logger.isErrorEnabled()) {
-				Message<?> failedMessage = (t instanceof MessagingException) ?
-						((MessagingException) t).getFailedMessage() : null;
+				Message<?> failedMessage =
+						throwable instanceof MessagingException
+								? ((MessagingException) throwable).getFailedMessage()
+								: null;
 				if (failedMessage != null) {
-					logger.error("failure occurred in messaging task with message: " + failedMessage, t);
+					logger.error("failure occurred in messaging task with message: " + failedMessage, throwable);
 				}
 				else {
-					logger.error("failure occurred in messaging task", t);
+					logger.error("failure occurred in messaging task", throwable);
 				}
 			}
 
@@ -268,14 +279,20 @@ public abstract class TestUtils {
 		private MessageChannel resolveErrorChannel(Throwable t) {
 			if (t instanceof MessagingException) {
 				Message<?> failedMessage = ((MessagingException) t).getFailedMessage();
+				if (failedMessage == null) {
+					return null;
+				}
 				Object errorChannelHeader = failedMessage.getHeaders().getErrorChannel();
 				if (errorChannelHeader instanceof MessageChannel) {
 					return (MessageChannel) errorChannelHeader;
 				}
-				Assert.isInstanceOf(String.class, errorChannelHeader, "Unsupported error channel header type. " +
-						"Expected MessageChannel or String, but actual type is [" +
-						errorChannelHeader.getClass() + "]");
-				return this.context.getBean((String) errorChannelHeader, MessageChannel.class);
+				else if (errorChannelHeader instanceof String) {
+					return this.context.getBean((String) errorChannelHeader, MessageChannel.class);
+				}
+				else {
+					throw new IllegalStateException("Unsupported error channel header type. " +
+							"Expected MessageChannel or String, but actual header is [" + errorChannelHeader + "]");
+				}
 			}
 			else {
 				return null;

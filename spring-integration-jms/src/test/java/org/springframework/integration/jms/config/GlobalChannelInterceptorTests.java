@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,7 @@
 
 package org.springframework.integration.jms.config;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
@@ -27,8 +25,8 @@ import org.junit.Test;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.integration.channel.AbstractMessageChannel;
-import org.springframework.integration.channel.ChannelInterceptorAware;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.InterceptableChannel;
 
 /**
  * @author Oleg Zhurakousky
@@ -42,18 +40,20 @@ public class GlobalChannelInterceptorTests {
 	@Test
 	public void testJmsChannel() {
 		ActiveMqTestUtils.prepare();
-		ConfigurableApplicationContext context = new ClassPathXmlApplicationContext(
-				"GlobalChannelInterceptorTests-context.xml",  GlobalChannelInterceptorTests.class);
-		ChannelInterceptorAware jmsChannel = context.getBean("jmsChannel", AbstractMessageChannel.class);
-		List<ChannelInterceptor> interceptors = jmsChannel.getChannelInterceptors();
-		assertNotNull(interceptors);
-		assertEquals(1, interceptors.size());
-		assertTrue(interceptors.get(0) instanceof SampleInterceptor);
-		context.close();
+		try (ConfigurableApplicationContext context = new ClassPathXmlApplicationContext(
+				"GlobalChannelInterceptorTests-context.xml", GlobalChannelInterceptorTests.class)) {
+
+			InterceptableChannel jmsChannel = context.getBean("jmsChannel", AbstractMessageChannel.class);
+			List<ChannelInterceptor> interceptors = jmsChannel.getInterceptors();
+			assertThat(interceptors).isNotNull();
+			assertThat(interceptors.size()).isEqualTo(1);
+			assertThat(interceptors.get(0) instanceof SampleInterceptor).isTrue();
+		}
 	}
 
 
 	public static class SampleInterceptor implements ChannelInterceptor {
+
 	}
 
 }

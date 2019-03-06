@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 
 package org.springframework.integration.endpoint;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -24,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.beans.factory.BeanNameAware;
 import org.springframework.expression.Expression;
 import org.springframework.integration.core.MessageSource;
+import org.springframework.integration.expression.ExpressionEvalMap;
 import org.springframework.integration.support.AbstractIntegrationMessageBuilder;
 import org.springframework.integration.support.context.NamedComponent;
 import org.springframework.integration.support.management.IntegrationManagedResource;
@@ -31,8 +31,8 @@ import org.springframework.integration.support.management.MessageSourceMetrics;
 import org.springframework.integration.support.management.metrics.CounterFacade;
 import org.springframework.integration.support.management.metrics.MetricsCaptor;
 import org.springframework.integration.util.AbstractExpressionEvaluator;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.MessagingException;
 import org.springframework.util.CollectionUtils;
 
 /**
@@ -51,7 +51,7 @@ public abstract class AbstractMessageSource<T> extends AbstractExpressionEvaluat
 
 	private final ManagementOverrides managementOverrides = new ManagementOverrides();
 
-	private volatile Map<String, Expression> headerExpressions = Collections.emptyMap();
+	private Map<String, Expression> headerExpressions;
 
 	private String beanName;
 
@@ -59,17 +59,18 @@ public abstract class AbstractMessageSource<T> extends AbstractExpressionEvaluat
 
 	private String managedName;
 
-	private volatile boolean countsEnabled;
+	private boolean countsEnabled;
 
-	private volatile boolean loggingEnabled = true;
+	private boolean loggingEnabled = true;
 
 	private MetricsCaptor metricsCaptor;
 
 	private CounterFacade receiveCounter;
 
-	public void setHeaderExpressions(Map<String, Expression> headerExpressions) {
-		this.headerExpressions = (headerExpressions != null)
-				? headerExpressions : Collections.emptyMap();
+	public void setHeaderExpressions(@Nullable Map<String, Expression> headerExpressions) {
+		if (!CollectionUtils.isEmpty(headerExpressions)) {
+			this.headerExpressions = new HashMap<>(headerExpressions);
+		}
 	}
 
 	@Override
@@ -80,6 +81,11 @@ public abstract class AbstractMessageSource<T> extends AbstractExpressionEvaluat
 	@Override
 	public void setBeanName(String name) {
 		this.beanName = name;
+	}
+
+	@Override
+	public String getBeanName() {
+		return this.beanName;
 	}
 
 	@Override
@@ -156,41 +162,31 @@ public abstract class AbstractMessageSource<T> extends AbstractExpressionEvaluat
 
 	@SuppressWarnings("unchecked")
 	protected Message<T> buildMessage(Object result) {
-		Message<T> message = null;
+		Message<?> message = null;
 		Map<String, Object> headers = evaluateHeaders();
-		if (result instanceof AbstractIntegrationMessageBuilder) {
+		if (result instanceof AbstractIntegrationMessageBuilder<?>) {
 			if (!CollectionUtils.isEmpty(headers)) {
-				((AbstractIntegrationMessageBuilder<T>) result).copyHeaders(headers);
+				((AbstractIntegrationMessageBuilder<?>) result).copyHeaders(headers);
 			}
-			message = ((AbstractIntegrationMessageBuilder<T>) result).build();
+			message = ((AbstractIntegrationMessageBuilder<?>) result).build();
 		}
 		else if (result instanceof Message<?>) {
-			try {
-				message = (Message<T>) result;
-			}
-			catch (Exception e) {
-				throw new MessagingException("MessageSource returned unexpected type.", e);
-			}
+			message = (Message<?>) result;
 			if (!CollectionUtils.isEmpty(headers)) {
 				// create a new Message from this one in order to apply headers
-				message = getMessageBuilderFactory()
-						.fromMessage(message)
-						.copyHeaders(headers)
-						.build();
+				message =
+						getMessageBuilderFactory()
+								.fromMessage(message)
+								.copyHeaders(headers)
+								.build();
 			}
 		}
 		else if (result != null) {
-			T payload;
-			try {
-				payload = (T) result;
-			}
-			catch (Exception e) {
-				throw new MessagingException("MessageSource returned unexpected type.", e);
-			}
-			message = getMessageBuilderFactory()
-					.withPayload(payload)
-					.copyHeaders(headers)
-					.build();
+			message =
+					getMessageBuilderFactory()
+							.withPayload(result)
+							.copyHeaders(headers)
+							.build();
 		}
 		if (this.countsEnabled && message != null) {
 			if (this.metricsCaptor != null) {
@@ -198,31 +194,29 @@ public abstract class AbstractMessageSource<T> extends AbstractExpressionEvaluat
 			}
 			this.messageCount.incrementAndGet();
 		}
-		return message;
+		return (Message<T>) message;
 	}
 
 	private void incrementReceiveCounter() {
 		if (this.receiveCounter == null) {
 			this.receiveCounter = this.metricsCaptor.counterBuilder(RECEIVE_COUNTER_NAME)
-				.tag("name", getComponentName() == null ? "unknown" : getComponentName())
-				.tag("type", "source")
-				.tag("result", "success")
-				.tag("exception", "none")
-				.description("Messages received")
-				.build();
+					.tag("name", getComponentName() == null ? "unknown" : getComponentName())
+					.tag("type", "source")
+					.tag("result", "success")
+					.tag("exception", "none")
+					.description("Messages received")
+					.build();
 		}
 		this.receiveCounter.increment();
 	}
 
+	@Nullable
 	private Map<String, Object> evaluateHeaders() {
-		Map<String, Object> results = new HashMap<>();
-		for (Map.Entry<String, Expression> entry : this.headerExpressions.entrySet()) {
-			Object headerValue = this.evaluateExpression(entry.getValue());
-			if (headerValue != null) {
-				results.put(entry.getKey(), headerValue);
-			}
-		}
-		return results;
+		return CollectionUtils.isEmpty(this.headerExpressions)
+				? null
+				: ExpressionEvalMap.from(this.headerExpressions)
+						.usingEvaluationContext(getEvaluationContext())
+						.build();
 	}
 
 	/**
@@ -231,6 +225,7 @@ public abstract class AbstractMessageSource<T> extends AbstractExpressionEvaluat
 	 * also can be {@link AbstractIntegrationMessageBuilder} which is used for additional headers population.
 	 * @return The value returned.
 	 */
+	@Nullable
 	protected abstract Object doReceive();
 
 	@Override

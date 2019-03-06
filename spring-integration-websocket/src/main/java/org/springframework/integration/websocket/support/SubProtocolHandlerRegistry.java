@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,16 +38,17 @@ import org.springframework.web.socket.messaging.SubProtocolHandler;
  *
  * @author Andy Wilkinson
  * @author Artem Bilan
+ *
  * @since 4.1
+ *
  * @see org.springframework.integration.websocket.inbound.WebSocketInboundChannelAdapter
  * @see org.springframework.integration.websocket.outbound.WebSocketOutboundMessageHandler
  */
 public final class SubProtocolHandlerRegistry {
 
-	private final static Log logger = LogFactory.getLog(SubProtocolHandlerRegistry.class);
+	private static final Log LOGGER = LogFactory.getLog(SubProtocolHandlerRegistry.class);
 
-	private final Map<String, SubProtocolHandler> protocolHandlers =
-			new TreeMap<String, SubProtocolHandler>(String.CASE_INSENSITIVE_ORDER);
+	private final Map<String, SubProtocolHandler> protocolHandlers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 
 	private final SubProtocolHandler defaultProtocolHandler;
 
@@ -61,25 +62,11 @@ public final class SubProtocolHandlerRegistry {
 
 	public SubProtocolHandlerRegistry(List<SubProtocolHandler> protocolHandlers,
 			SubProtocolHandler defaultProtocolHandler) {
+
 		Assert.state(!CollectionUtils.isEmpty(protocolHandlers) || defaultProtocolHandler != null,
 				"One of 'protocolHandlers' or 'defaultProtocolHandler' must be provided");
 
-		if (!CollectionUtils.isEmpty(protocolHandlers)) {
-			for (SubProtocolHandler handler : protocolHandlers) {
-				List<String> protocols = handler.getSupportedProtocols();
-				if (CollectionUtils.isEmpty(protocols)) {
-					logger.warn("No sub-protocols, ignoring handler " + handler);
-					continue;
-				}
-				for (String protocol : protocols) {
-					SubProtocolHandler replaced = this.protocolHandlers.put(protocol, handler);
-					if (replaced != null) {
-						throw new IllegalStateException("Failed to map handler " + handler
-								+ " to protocol '" + protocol + "', it is already mapped to handler " + replaced);
-					}
-				}
-			}
-		}
+		configureProtocolHandlers(protocolHandlers);
 
 		if (this.protocolHandlers.size() == 1 && defaultProtocolHandler == null) {
 			this.defaultProtocolHandler = this.protocolHandlers.values().iterator().next();
@@ -88,13 +75,32 @@ public final class SubProtocolHandlerRegistry {
 			this.defaultProtocolHandler = defaultProtocolHandler;
 			if (this.protocolHandlers.isEmpty() && this.defaultProtocolHandler != null) {
 				List<String> protocols = this.defaultProtocolHandler.getSupportedProtocols();
-				for (String protocol : protocols) {
-					SubProtocolHandler replaced = this.protocolHandlers.put(protocol, this.defaultProtocolHandler);
-					if (replaced != null) {
-						throw new IllegalStateException("Failed to map handler " + this.defaultProtocolHandler
-								+ " to protocol '" + protocol + "', it is already mapped to handler " + replaced);
+				populateProtocolsForHandler(this.defaultProtocolHandler, protocols);
+			}
+		}
+	}
+
+	private void configureProtocolHandlers(List<SubProtocolHandler> protocolHandlers) {
+		if (!CollectionUtils.isEmpty(protocolHandlers)) {
+			for (SubProtocolHandler handler : protocolHandlers) {
+				List<String> protocols = handler.getSupportedProtocols();
+				if (CollectionUtils.isEmpty(protocols)) {
+					if (LOGGER.isWarnEnabled()) {
+						LOGGER.warn("No sub-protocols, ignoring handler " + handler);
 					}
+					continue;
 				}
+				populateProtocolsForHandler(handler, protocols);
+			}
+		}
+	}
+
+	private void populateProtocolsForHandler(SubProtocolHandler handler, List<String> protocols) {
+		for (String protocol : protocols) {
+			SubProtocolHandler replaced = this.protocolHandlers.put(protocol, handler);
+			if (replaced != null) {
+				throw new IllegalStateException("Failed to map handler " + handler
+						+ " to protocol '" + protocol + "', it is already mapped to handler " + replaced);
 			}
 		}
 	}
@@ -112,7 +118,7 @@ public final class SubProtocolHandlerRegistry {
 		if (StringUtils.hasText(protocol)) {
 			handler = this.protocolHandlers.get(protocol);
 			Assert.state(handler != null,
-					"No handler for sub-protocol '" + protocol + "', handlers = " + this.protocolHandlers);
+					() -> "No handler for sub-protocol '" + protocol + "', handlers = " + this.protocolHandlers);
 		}
 		else {
 			handler = this.defaultProtocolHandler;
@@ -150,7 +156,7 @@ public final class SubProtocolHandlerRegistry {
 	 * @return The the {@link List} of supported sub-protocols.
 	 */
 	public List<String> getSubProtocols() {
-		return new ArrayList<String>(this.protocolHandlers.keySet());
+		return new ArrayList<>(this.protocolHandlers.keySet());
 	}
 
 }

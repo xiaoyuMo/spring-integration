@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,12 @@
 
 package org.springframework.integration.config.annotation;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Collections;
 import java.util.List;
 
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -61,18 +62,23 @@ public class RouterAnnotationPostProcessorTests {
 		context.registerChannel("stringChannel", stringChannel);
 	}
 
+	@After
+	public void tearDown() {
+		this.context.close();
+	}
 
 	@Test
 	public void testRouter() {
 		MessagingAnnotationPostProcessor postProcessor = new MessagingAnnotationPostProcessor();
 		postProcessor.setBeanFactory(context.getBeanFactory());
 		postProcessor.afterPropertiesSet();
+		postProcessor.afterSingletonsInstantiated();
 		TestRouter testRouter = new TestRouter();
 		postProcessor.postProcessAfterInitialization(testRouter, "test");
 		context.refresh();
-		inputChannel.send(new GenericMessage<String>("foo"));
+		inputChannel.send(new GenericMessage<>("foo"));
 		Message<?> replyMessage = outputChannel.receive(0);
-		assertEquals("foo", replyMessage.getPayload());
+		assertThat(replyMessage.getPayload()).isEqualTo("foo");
 		context.stop();
 	}
 
@@ -81,18 +87,19 @@ public class RouterAnnotationPostProcessorTests {
 		MessagingAnnotationPostProcessor postProcessor = new MessagingAnnotationPostProcessor();
 		postProcessor.setBeanFactory(context.getBeanFactory());
 		postProcessor.afterPropertiesSet();
+		postProcessor.afterSingletonsInstantiated();
 		TestRouter testRouter = new TestRouter();
 		postProcessor.postProcessAfterInitialization(testRouter, "test");
 		context.refresh();
 
 		routingChannel.send(new GenericMessage<>(Collections.singletonList("foo")));
 		Message<?> replyMessage = stringChannel.receive(0);
-		assertEquals(Collections.singletonList("foo"), replyMessage.getPayload());
+		assertThat(replyMessage.getPayload()).isEqualTo(Collections.singletonList("foo"));
 
 		// The SpEL ReflectiveMethodExecutor does a conversion of a single value to a List
-		routingChannel.send(new GenericMessage<Integer>(2));
+		routingChannel.send(new GenericMessage<>(2));
 		replyMessage = integerChannel.receive(0);
-		assertEquals(2, replyMessage.getPayload());
+		assertThat(replyMessage.getPayload()).isEqualTo(2);
 		context.stop();
 	}
 

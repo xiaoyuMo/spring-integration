@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,21 +44,22 @@ import org.springframework.util.Assert;
  */
 public class ExpressionEvaluatingParameterSourceFactory implements ParameterSourceFactory {
 
-	private final static Log logger = LogFactory.getLog(ExpressionEvaluatingParameterSourceFactory.class);
+	private static final Log LOGGER = LogFactory.getLog(ExpressionEvaluatingParameterSourceFactory.class);
 
 	private static final Object ERROR = new Object();
 
-	private volatile List<JpaParameter> parameters;
-
 	private final ParameterExpressionEvaluator expressionEvaluator = new ParameterExpressionEvaluator();
+
+	private final List<JpaParameter> parameters = new ArrayList<>();
 
 	public ExpressionEvaluatingParameterSourceFactory() {
 		this(null);
 	}
 
 	public ExpressionEvaluatingParameterSourceFactory(@Nullable BeanFactory beanFactory) {
-		this.parameters = new ArrayList<>();
-		this.expressionEvaluator.setBeanFactory(beanFactory);
+		if (beanFactory != null) {
+			this.expressionEvaluator.setBeanFactory(beanFactory);
+		}
 	}
 
 	/**
@@ -66,14 +67,13 @@ public class ExpressionEvaluatingParameterSourceFactory implements ParameterSour
 	 * @param parameters the parameters to be set
 	 */
 	public void setParameters(List<JpaParameter> parameters) {
-
 		Assert.notEmpty(parameters, "parameters must not be null or empty.");
 
 		for (JpaParameter parameter : parameters) {
 			Assert.notNull(parameter, "The provided list (parameters) cannot contain null values.");
 		}
 
-		this.parameters = parameters;
+		this.parameters.addAll(parameters);
 		this.expressionEvaluator.getEvaluationContext().setVariable("staticParameters",
 				ExpressionEvaluatingParameterSourceUtils.convertStaticParameters(parameters));
 
@@ -89,7 +89,7 @@ public class ExpressionEvaluatingParameterSourceFactory implements ParameterSour
 
 		private final Object input;
 
-		private volatile Map<String, Object> values = new HashMap<>();
+		private final Map<String, Object> values = new HashMap<>();
 
 		private final List<JpaParameter> parameters;
 
@@ -138,8 +138,8 @@ public class ExpressionEvaluatingParameterSourceFactory implements ParameterSour
 					if (parameter.getName() != null) {
 						this.values.put(parameter.getName(), value);
 					}
-					if (logger.isDebugEnabled()) {
-						logger.debug("Resolved expression " + expression + " to " + value);
+					if (LOGGER.isDebugEnabled()) {
+						LOGGER.debug("Resolved expression " + expression + " to " + value);
 					}
 					return value;
 
@@ -176,8 +176,8 @@ public class ExpressionEvaluatingParameterSourceFactory implements ParameterSour
 
 			final Object value = this.expressionEvaluator.evaluateExpression(expression, this.input);
 			this.values.put(paramName, value);
-			if (logger.isDebugEnabled()) {
-				logger.debug("Resolved expression " + expression + " to " + value);
+			if (LOGGER.isDebugEnabled()) {
+				LOGGER.debug("Resolved expression " + expression + " to " + value);
 			}
 			return value;
 		}
@@ -186,13 +186,13 @@ public class ExpressionEvaluatingParameterSourceFactory implements ParameterSour
 		public boolean hasValue(String paramName) {
 			try {
 				final Object value = getValue(paramName);
-				if (value == ERROR) {
+				if (ERROR.equals(value)) {
 					return false;
 				}
 			}
 			catch (ExpressionException e) {
-				if (logger.isDebugEnabled()) {
-					logger.debug("Could not evaluate expression", e);
+				if (LOGGER.isDebugEnabled()) {
+					LOGGER.debug("Could not evaluate expression", e);
 				}
 				this.values.put(paramName, ERROR);
 				return false;

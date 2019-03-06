@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,7 @@
 
 package org.springframework.integration.mail;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -61,20 +54,20 @@ import javax.mail.internet.MimeMessage;
 import javax.mail.search.AndTerm;
 import javax.mail.search.FlagTerm;
 import javax.mail.search.FromTerm;
-import javax.mail.search.SearchTerm;
 
 import org.apache.commons.logging.Log;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 
 import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.beans.factory.BeanFactory;
-import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.support.ClassPathXmlApplicationContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
@@ -83,7 +76,6 @@ import org.springframework.integration.channel.QueueChannel;
 import org.springframework.integration.handler.AbstractReplyProducingMessageHandler;
 import org.springframework.integration.history.MessageHistory;
 import org.springframework.integration.mail.ImapIdleChannelAdapter.ImapIdleExceptionEvent;
-import org.springframework.integration.mail.config.ImapIdleChannelAdapterParserTests;
 import org.springframework.integration.mail.support.DefaultMailHeaderMapper;
 import org.springframework.integration.test.mail.TestMailServer;
 import org.springframework.integration.test.mail.TestMailServer.ImapServer;
@@ -93,6 +85,9 @@ import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.PollableChannel;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit4.SpringRunner;
 
 import com.sun.mail.imap.IMAPFolder;
 
@@ -101,34 +96,41 @@ import com.sun.mail.imap.IMAPFolder;
  * @author Gary Russell
  * @author Artem Bilan
  */
+@RunWith(SpringRunner.class)
+@ContextConfiguration(
+		"classpath:org/springframework/integration/mail/config/ImapIdleChannelAdapterParserTests-context.xml")
+@DirtiesContext
 public class ImapMailReceiverTests {
+
+	private final ImapServer imapIdleServer = TestMailServer.imap(0);
 
 	@Rule
 	public final LongRunningIntegrationTest longRunningIntegrationTest = new LongRunningIntegrationTest();
 
 	private final AtomicInteger failed = new AtomicInteger(0);
 
-	private final static ImapServer imapIdleServer = TestMailServer.imap(0);
 
+	@Autowired
+	private ApplicationContext context;
 
-	@BeforeClass
-	public static void setup() throws InterruptedException {
+	@Before
+	public void setup() throws InterruptedException {
 		int n = 0;
-		while (n++ < 100 && (!imapIdleServer.isListening())) {
+		while (n++ < 100 && (!this.imapIdleServer.isListening())) {
 			Thread.sleep(100);
 		}
-		assertTrue(n < 100);
+		assertThat(n < 100).isTrue();
 	}
 
-	@AfterClass
-	public static void tearDown() {
-		imapIdleServer.stop();
+	@After
+	public void tearDown() {
+		this.imapIdleServer.stop();
 	}
 
 	@Test
 	public void testIdleWithServerCustomSearch() throws Exception {
-		ImapMailReceiver receiver = new ImapMailReceiver("imap://user:pw@localhost:" + imapIdleServer.getPort()
-				+ "/INBOX");
+		ImapMailReceiver receiver =
+				new ImapMailReceiver("imap://user:pw@localhost:" + this.imapIdleServer.getPort() + "/INBOX");
 		receiver.setSearchTermStrategy((supportedFlags, folder) -> {
 			try {
 				FromTerm fromTerm = new FromTerm(new InternetAddress("bar@baz"));
@@ -143,33 +145,33 @@ public class ImapMailReceiverTests {
 
 	@Test
 	public void testIdleWithServerDefaultSearch() throws Exception {
-		ImapMailReceiver receiver = new ImapMailReceiver("imap://user:pw@localhost:" + imapIdleServer.getPort()
-				+ "/INBOX");
+		ImapMailReceiver receiver =
+				new ImapMailReceiver("imap://user:pw@localhost:" + this.imapIdleServer.getPort() + "/INBOX");
 		testIdleWithServerGuts(receiver, false);
-		assertTrue(imapIdleServer.assertReceived("searchWithUserFlag"));
+		assertThat(this.imapIdleServer.assertReceived("searchWithUserFlag")).isTrue();
 	}
 
 	@Test
 	public void testIdleWithMessageMapping() throws Exception {
-		ImapMailReceiver receiver = new ImapMailReceiver("imap://user:pw@localhost:" + imapIdleServer.getPort()
-				+ "/INBOX");
+		ImapMailReceiver receiver =
+				new ImapMailReceiver("imap://user:pw@localhost:" + this.imapIdleServer.getPort() + "/INBOX");
 		receiver.setHeaderMapper(new DefaultMailHeaderMapper());
 		testIdleWithServerGuts(receiver, true);
 	}
 
 	@Test
 	public void testIdleWithServerDefaultSearchSimple() throws Exception {
-		ImapMailReceiver receiver = new ImapMailReceiver("imap://user:pw@localhost:" + imapIdleServer.getPort()
-				+ "/INBOX");
+		ImapMailReceiver receiver =
+				new ImapMailReceiver("imap://user:pw@localhost:" + this.imapIdleServer.getPort() + "/INBOX");
 		receiver.setSimpleContent(true);
 		testIdleWithServerGuts(receiver, false, true);
-		assertTrue(imapIdleServer.assertReceived("searchWithUserFlag"));
+		assertThat(this.imapIdleServer.assertReceived("searchWithUserFlag")).isTrue();
 	}
 
 	@Test
 	public void testIdleWithMessageMappingSimple() throws Exception {
-		ImapMailReceiver receiver = new ImapMailReceiver("imap://user:pw@localhost:" + imapIdleServer.getPort()
-				+ "/INBOX");
+		ImapMailReceiver receiver =
+				new ImapMailReceiver("imap://user:pw@localhost:" + this.imapIdleServer.getPort() + "/INBOX");
 		receiver.setSimpleContent(true);
 		receiver.setHeaderMapper(new DefaultMailHeaderMapper());
 		testIdleWithServerGuts(receiver, true, true);
@@ -180,7 +182,7 @@ public class ImapMailReceiverTests {
 	}
 
 	public void testIdleWithServerGuts(ImapMailReceiver receiver, boolean mapped, boolean simple) throws Exception {
-		imapIdleServer.resetServer();
+		this.imapIdleServer.resetServer();
 		Properties mailProps = new Properties();
 		mailProps.put("mail.debug", "true");
 		mailProps.put("mail.imap.connectionpool.debug", "true");
@@ -188,7 +190,7 @@ public class ImapMailReceiverTests {
 		receiver.setMaxFetchSize(1);
 		receiver.setShouldDeleteMessages(false);
 		receiver.setShouldMarkMessagesAsRead(true);
-		receiver.setCancelIdleInterval(8);
+		receiver.setCancelIdleInterval(1);
 		ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
 		setUpScheduler(receiver, taskScheduler);
 		receiver.setUserFlag("testSIUserFlag");
@@ -199,47 +201,52 @@ public class ImapMailReceiverTests {
 		QueueChannel channel = new QueueChannel();
 		adapter.setOutputChannel(channel);
 		adapter.setTaskScheduler(taskScheduler);
+		adapter.setReconnectDelay(1);
 		adapter.start();
 		if (!mapped) {
 			@SuppressWarnings("unchecked")
 			org.springframework.messaging.Message<MimeMessage> received =
 					(org.springframework.messaging.Message<MimeMessage>) channel.receive(10000);
-			assertNotNull(received);
-			assertNotNull(received.getPayload().getReceivedDate());
-			assertTrue(received.getPayload().getLineCount() > -1);
+			assertThat(received).isNotNull();
+			assertThat(received.getPayload().getReceivedDate()).isNotNull();
+			assertThat(received.getPayload().getLineCount() > -1).isTrue();
 			if (simple) {
-				assertThat(received.getPayload().getContent(),
-						equalTo(TestMailServer.MailServer.MailHandler.BODY + "\r\n"));
+				assertThat(received.getPayload().getContent())
+						.isEqualTo(TestMailServer.MailServer.MailHandler.BODY + "\r\n");
 			}
 			else {
-				assertThat(received.getPayload().getContent(),
-						equalTo(TestMailServer.MailServer.MailHandler.MESSAGE + "\r\n"));
+				assertThat(received.getPayload().getContent())
+						.isEqualTo(TestMailServer.MailServer.MailHandler.MESSAGE + "\r\n");
 			}
 		}
 		else {
 			org.springframework.messaging.Message<?> received = channel.receive(10000);
-			assertNotNull(received);
+			assertThat(received).isNotNull();
 			MessageHeaders headers = received.getHeaders();
-			assertNotNull(headers.get(MailHeaders.RAW_HEADERS));
-			assertThat(headers.get(MailHeaders.CONTENT_TYPE), equalTo("TEXT/PLAIN; charset=ISO-8859-1"));
-			assertThat(headers.get(MessageHeaders.CONTENT_TYPE), equalTo("TEXT/PLAIN; charset=ISO-8859-1"));
-			assertThat(headers.get(MailHeaders.FROM), equalTo("Bar <bar@baz>"));
-			assertThat((headers.get(MailHeaders.TO, String[].class))[0], equalTo("Foo <foo@bar>"));
-			assertThat(Arrays.toString(headers.get(MailHeaders.CC, String[].class)), equalTo("[a@b, c@d]"));
-			assertThat(Arrays.toString(headers.get(MailHeaders.BCC, String[].class)), equalTo("[e@f, g@h]"));
-			assertThat(headers.get(MailHeaders.SUBJECT), equalTo("Test Email"));
+			assertThat(headers.get(MailHeaders.RAW_HEADERS)).isNotNull();
+			assertThat(headers.get(MailHeaders.CONTENT_TYPE)).isEqualTo("TEXT/PLAIN; charset=ISO-8859-1");
+			assertThat(headers.get(MessageHeaders.CONTENT_TYPE)).isEqualTo("TEXT/PLAIN; charset=ISO-8859-1");
+			assertThat(headers.get(MailHeaders.FROM)).isEqualTo("Bar <bar@baz>");
+			String[] toHeader = headers.get(MailHeaders.TO, String[].class);
+			assertThat(toHeader).isNotEmpty();
+			assertThat(toHeader[0]).isEqualTo("Foo <foo@bar>");
+			assertThat(Arrays.toString(headers.get(MailHeaders.CC, String[].class))).isEqualTo("[a@b, c@d]");
+			assertThat(Arrays.toString(headers.get(MailHeaders.BCC, String[].class))).isEqualTo("[e@f, g@h]");
+			assertThat(headers.get(MailHeaders.SUBJECT)).isEqualTo("Test Email");
 			if (simple) {
-				assertThat(received.getPayload(), equalTo(TestMailServer.MailServer.MailHandler.BODY + "\r\n"));
+				assertThat(received.getPayload()).isEqualTo(TestMailServer.MailServer.MailHandler.BODY + "\r\n");
 			}
 			else {
-				assertThat(received.getPayload(), equalTo(TestMailServer.MailServer.MailHandler.MESSAGE + "\r\n"));
+				assertThat(received.getPayload()).isEqualTo(TestMailServer.MailServer.MailHandler.MESSAGE + "\r\n");
 			}
 		}
-		assertNotNull(channel.receive(10000)); // new message after idle
-		assertNull(channel.receive(10000)); // no new message after second and third idle
+		assertThat(channel.receive(20000)).isNotNull(); // new message after idle
+		assertThat(channel.receive(100)).isNull(); // no new message after second and third idle
 		verify(logger).debug("Canceling IDLE");
+
+		adapter.stop();
 		taskScheduler.shutdown();
-		assertTrue(imapIdleServer.assertReceived("storeUserFlag"));
+		assertThat(this.imapIdleServer.assertReceived("storeUserFlag")).isTrue();
 	}
 
 	@Test
@@ -250,7 +257,7 @@ public class ImapMailReceiverTests {
 		receiver = receiveAndMarkAsReadDontDeleteGuts(receiver, msg1, msg2);
 		verify(msg1, times(1)).setFlag(Flag.SEEN, true);
 		verify(msg2, times(1)).setFlag(Flag.SEEN, true);
-		verify(receiver, times(0)).deleteMessages((Message[]) Mockito.any());
+		verify(receiver, times(0)).deleteMessages(Mockito.any());
 	}
 
 	private AbstractMailReceiver receiveAndMarkAsReadDontDeleteGuts(AbstractMailReceiver receiver, Message msg1,
@@ -269,7 +276,7 @@ public class ImapMailReceiverTests {
 
 		willAnswer(invocation -> {
 			DirectFieldAccessor accessor = new DirectFieldAccessor(invocation.getMock());
-			int folderOpenMode = (Integer) accessor.getPropertyValue("folderOpenMode");
+			int folderOpenMode = (int) accessor.getPropertyValue("folderOpenMode");
 			if (folderOpenMode != Folder.READ_WRITE) {
 				throw new IllegalArgumentException("Folder had to be open in READ_WRITE mode");
 			}
@@ -294,7 +301,7 @@ public class ImapMailReceiverTests {
 		receiver = receiveAndMarkAsReadDontDeleteGuts(receiver, msg1, msg2);
 		verify(msg1, times(1)).setFlag(Flag.SEEN, true);
 		verify(msg2, times(1)).setFlag(Flag.SEEN, true);
-		verify(receiver, times(0)).deleteMessages((Message[]) Mockito.any());
+		verify(receiver, times(0)).deleteMessages(Mockito.any());
 	}
 
 	@Test // INT-2991 filtered messages were marked SEEN
@@ -309,7 +316,7 @@ public class ImapMailReceiverTests {
 		receiver = receiveAndMarkAsReadDontDeleteGuts(receiver, msg1, msg2);
 		verify(msg1, times(1)).setFlag(Flag.SEEN, true);
 		verify(msg2, never()).setFlag(Flag.SEEN, true);
-		verify(receiver, times(0)).deleteMessages((Message[]) Mockito.any());
+		verify(receiver, times(0)).deleteMessages(Mockito.any());
 	}
 
 
@@ -333,7 +340,7 @@ public class ImapMailReceiverTests {
 		final Message[] messages = new Message[] { msg1, msg2 };
 		willAnswer(invocation -> {
 			DirectFieldAccessor accessor = new DirectFieldAccessor(invocation.getMock());
-			int folderOpenMode = (Integer) accessor.getPropertyValue("folderOpenMode");
+			int folderOpenMode = (int) accessor.getPropertyValue("folderOpenMode");
 			if (folderOpenMode != Folder.READ_WRITE) {
 				throw new IllegalArgumentException("Folder had to be open in READ_WRITE mode");
 			}
@@ -346,7 +353,7 @@ public class ImapMailReceiverTests {
 		receiver.receive();
 		verify(msg1, times(1)).setFlag(Flag.SEEN, true);
 		verify(msg2, times(1)).setFlag(Flag.SEEN, true);
-		verify(receiver, times(1)).deleteMessages((Message[]) Mockito.any());
+		verify(receiver, times(1)).deleteMessages(Mockito.any());
 	}
 
 	@Test
@@ -398,7 +405,7 @@ public class ImapMailReceiverTests {
 		final Message[] messages = new Message[] { msg1, msg2 };
 		willAnswer(invocation -> {
 			DirectFieldAccessor accessor = new DirectFieldAccessor(invocation.getMock());
-			int folderOpenMode = (Integer) accessor.getPropertyValue("folderOpenMode");
+			int folderOpenMode = (int) accessor.getPropertyValue("folderOpenMode");
 			if (folderOpenMode != Folder.READ_WRITE) {
 				throw new IllegalArgumentException("Folder had to be open in READ_WRITE mode");
 			}
@@ -434,7 +441,7 @@ public class ImapMailReceiverTests {
 		final Message[] messages = new Message[] { msg1, msg2 };
 		willAnswer(invocation -> {
 			DirectFieldAccessor accessor = new DirectFieldAccessor(invocation.getMock());
-			int folderOpenMode = (Integer) accessor.getPropertyValue("folderOpenMode");
+			int folderOpenMode = (int) accessor.getPropertyValue("folderOpenMode");
 			if (folderOpenMode != Folder.READ_WRITE) {
 				throw new IllegalArgumentException("Folder had to be open in READ_WRITE mode");
 			}
@@ -447,15 +454,14 @@ public class ImapMailReceiverTests {
 		receiver.receive();
 		verify(msg1, times(1)).setFlag(Flag.SEEN, true);
 		verify(msg2, times(1)).setFlag(Flag.SEEN, true);
-		verify(receiver, times(0)).deleteMessages((Message[]) Mockito.any());
+		verify(receiver, times(0)).deleteMessages(Mockito.any());
 	}
 
 	@Test
 	@Ignore
 	public void testMessageHistory() throws Exception {
-		ConfigurableApplicationContext context =
-				new ClassPathXmlApplicationContext("ImapIdleChannelAdapterParserTests-context.xml", ImapIdleChannelAdapterParserTests.class);
-		ImapIdleChannelAdapter adapter = context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
+		ImapIdleChannelAdapter adapter = this.context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
+		adapter.setReconnectDelay(1);
 
 		AbstractMailReceiver receiver = new ImapMailReceiver();
 		receiver = spy(receiver);
@@ -482,24 +488,21 @@ public class ImapMailReceiverTests {
 
 		willAnswer(invocation -> null).given(receiver).fetchMessages(messages);
 
-		PollableChannel channel = context.getBean("channel", PollableChannel.class);
+		PollableChannel channel = this.context.getBean("channel", PollableChannel.class);
 
 		adapter.start();
 		org.springframework.messaging.Message<?> replMessage = channel.receive(10000);
 		MessageHistory history = MessageHistory.read(replMessage);
-		assertNotNull(history);
+		assertThat(history).isNotNull();
 		Properties componentHistoryRecord = TestUtils.locateComponentInHistory(history, "simpleAdapter", 0);
-		assertNotNull(componentHistoryRecord);
-		assertEquals("mail:imap-idle-channel-adapter", componentHistoryRecord.get("type"));
+		assertThat(componentHistoryRecord).isNotNull();
+		assertThat(componentHistoryRecord.get("type")).isEqualTo("mail:imap-idle-channel-adapter");
 		adapter.stop();
-		context.close();
 	}
 
 	@Test
 	public void testIdleChannelAdapterException() throws Exception {
-		ConfigurableApplicationContext context =
-				new ClassPathXmlApplicationContext("ImapIdleChannelAdapterParserTests-context.xml", ImapIdleChannelAdapterParserTests.class);
-		ImapIdleChannelAdapter adapter = context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
+		ImapIdleChannelAdapter adapter = this.context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
 
 		//ImapMailReceiver receiver = (ImapMailReceiver) TestUtils.getPropertyValue(adapter, "mailReceiver");
 
@@ -515,6 +518,7 @@ public class ImapMailReceiverTests {
 		adapter.setOutputChannel(channel);
 		QueueChannel errorChannel = new QueueChannel();
 		adapter.setErrorChannel(errorChannel);
+		adapter.setReconnectDelay(1);
 
 		AbstractMailReceiver receiver = new ImapMailReceiver();
 		receiver = spy(receiver);
@@ -545,21 +549,19 @@ public class ImapMailReceiverTests {
 
 		adapter.start();
 		org.springframework.messaging.Message<?> replMessage = errorChannel.receive(10000);
-		assertNotNull(replMessage);
-		assertEquals("Failed", ((Exception) replMessage.getPayload()).getCause().getMessage());
+		assertThat(replMessage).isNotNull();
+		assertThat(((Exception) replMessage.getPayload()).getCause().getMessage()).isEqualTo("Failed");
 		adapter.stop();
-		context.close();
 	}
 
 	@SuppressWarnings("resource")
 	@Test
 	public void testNoInitialIdleDelayWhenRecentNotSupported() throws Exception {
-		ConfigurableApplicationContext context =
-				new ClassPathXmlApplicationContext("ImapIdleChannelAdapterParserTests-context.xml", ImapIdleChannelAdapterParserTests.class);
-		ImapIdleChannelAdapter adapter = context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
+		ImapIdleChannelAdapter adapter = this.context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
 
 		QueueChannel channel = new QueueChannel();
 		adapter.setOutputChannel(channel);
+		adapter.setReconnectDelay(1);
 
 		ImapMailReceiver receiver = new ImapMailReceiver("imap:foo");
 		receiver = spy(receiver);
@@ -607,7 +609,7 @@ public class ImapMailReceiverTests {
 		willAnswer(invocation -> null).given(receiver).fetchMessages(messages);
 
 		willAnswer(invocation -> {
-			Thread.sleep(5000);
+			Thread.sleep(300);
 			shouldFindMessagesCounter.set(1);
 			return null;
 		}).given(folder).idle();
@@ -618,25 +620,23 @@ public class ImapMailReceiverTests {
 		 * Idle takes 5 seconds; if all is well, we should receive the first message
 		 * before then.
 		 */
-		assertNotNull(channel.receive(3000));
+		assertThat(channel.receive(3000)).isNotNull();
 		// We should not receive any more until the next idle elapses
-		assertNull(channel.receive(3000));
-		assertNotNull(channel.receive(6000));
+		assertThat(channel.receive(100)).isNull();
+		assertThat(channel.receive(6000)).isNotNull();
 		adapter.stop();
-		context.close();
 	}
 
-	@SuppressWarnings("resource")
 	@Test
 	public void testInitialIdleDelayWhenRecentIsSupported() throws Exception {
-		ConfigurableApplicationContext context =
-				new ClassPathXmlApplicationContext("ImapIdleChannelAdapterParserTests-context.xml", ImapIdleChannelAdapterParserTests.class);
-		ImapIdleChannelAdapter adapter = context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
+		ImapIdleChannelAdapter adapter = this.context.getBean("simpleAdapter", ImapIdleChannelAdapter.class);
 
 		QueueChannel channel = new QueueChannel();
 		adapter.setOutputChannel(channel);
+		adapter.setReconnectDelay(1);
 
 		ImapMailReceiver receiver = new ImapMailReceiver("imap:foo");
+		receiver.setCancelIdleInterval(1);
 		receiver = spy(receiver);
 		receiver.setBeanFactory(mock(BeanFactory.class));
 		receiver.afterPropertiesSet();
@@ -670,7 +670,7 @@ public class ImapMailReceiverTests {
 		final CountDownLatch idles = new CountDownLatch(2);
 		willAnswer(invocation -> {
 			idles.countDown();
-			Thread.sleep(5000);
+			Thread.sleep(1000);
 			return null;
 		}).given(folder).idle();
 
@@ -680,30 +680,34 @@ public class ImapMailReceiverTests {
 		 * Idle takes 5 seconds; since this server supports RECENT, we should
 		 * not receive any early messages.
 		 */
-		assertNull(channel.receive(3000));
-		assertNotNull(channel.receive(5000));
-		assertTrue(idles.await(5, TimeUnit.SECONDS));
+		assertThat(channel.receive(100)).isNull();
+		assertThat(channel.receive(5000)).isNotNull();
+		assertThat(idles.await(5, TimeUnit.SECONDS)).isTrue();
 		adapter.stop();
-		context.close();
 	}
 
 	@Test
 	public void testConnectionException() throws Exception {
 		ImapMailReceiver mailReceiver = new ImapMailReceiver("imap:foo");
 		ImapIdleChannelAdapter adapter = new ImapIdleChannelAdapter(mailReceiver);
-		final AtomicReference<ImapIdleExceptionEvent> theEvent = new AtomicReference<ImapIdleExceptionEvent>();
+		final AtomicReference<ImapIdleExceptionEvent> theEvent = new AtomicReference<>();
 		final CountDownLatch latch = new CountDownLatch(1);
 		adapter.setApplicationEventPublisher(event -> {
-			assertNull("only one event expected", theEvent.get());
+			assertThat(theEvent.get()).as("only one event expected").isNull();
 			theEvent.set((ImapIdleExceptionEvent) event);
 			latch.countDown();
 		});
 		ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
 		taskScheduler.initialize();
 		adapter.setTaskScheduler(taskScheduler);
+		adapter.setReconnectDelay(1);
 		adapter.start();
-		assertTrue(latch.await(10, TimeUnit.SECONDS));
-		assertTrue(theEvent.get().toString().endsWith("cause=java.lang.IllegalStateException: Failure in 'idle' task. Will resubmit.]"));
+		assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+		assertThat(theEvent.get().toString())
+				.endsWith("cause=java.lang.IllegalStateException: Failure in 'idle' task. Will resubmit.]");
+
+		adapter.stop();
+		taskScheduler.destroy();
 	}
 
 	@Test // see INT-1801
@@ -715,7 +719,7 @@ public class ImapMailReceiverTests {
 			Folder folder = mock(Folder.class);
 			given(folder.exists()).willReturn(true);
 			given(folder.isOpen()).willReturn(true);
-			given(folder.search((SearchTerm) Mockito.any())).willReturn(new Message[] { });
+			given(folder.search(Mockito.any())).willReturn(new Message[] { });
 			given(store.getFolder(Mockito.any(URLName.class))).willReturn(folder);
 			given(folder.getPermanentFlags()).willReturn(new Flags(Flags.Flag.USER));
 
@@ -746,7 +750,7 @@ public class ImapMailReceiverTests {
 				}
 			}).start();
 		}
-		assertEquals(0, failed.get());
+		assertThat(failed.get()).isEqualTo(0);
 	}
 
 	@Test
@@ -755,10 +759,10 @@ public class ImapMailReceiverTests {
 		Folder folder = testAttachmentsGuts(receiver);
 		Message[] messages = (Message[]) receiver.receive();
 		Object content = messages[0].getContent();
-		assertEquals("bar", ((Multipart) content).getBodyPart(0).getContent().toString().trim());
-		assertEquals("foo", ((Multipart) content).getBodyPart(1).getContent().toString().trim());
+		assertThat(((Multipart) content).getBodyPart(0).getContent().toString().trim()).isEqualTo("bar");
+		assertThat(((Multipart) content).getBodyPart(1).getContent().toString().trim()).isEqualTo("foo");
 
-		assertSame(folder, messages[0].getFolder());
+		assertThat(messages[0].getFolder()).isSameAs(folder);
 	}
 
 	@Test
@@ -770,11 +774,10 @@ public class ImapMailReceiverTests {
 				.receive();
 		org.springframework.messaging.Message<?> received = messages[0];
 		Object content = received.getPayload();
-		assertThat(content, instanceOf(byte[].class));
-		assertThat((String) received.getHeaders().get(MailHeaders.CONTENT_TYPE),
-				equalTo("multipart/mixed;\r\n boundary=\"------------040903000701040401040200\""));
-		assertThat((String) received.getHeaders().get(MessageHeaders.CONTENT_TYPE),
-				equalTo("application/octet-stream"));
+		assertThat(content).isInstanceOf(byte[].class);
+		assertThat(received.getHeaders().get(MailHeaders.CONTENT_TYPE))
+				.isEqualTo("multipart/mixed;\r\n boundary=\"------------040903000701040401040200\"");
+		assertThat(received.getHeaders().get(MessageHeaders.CONTENT_TYPE)).isEqualTo("application/octet-stream");
 	}
 
 	@Test
@@ -783,12 +786,12 @@ public class ImapMailReceiverTests {
 		receiver.setHeaderMapper(new DefaultMailHeaderMapper());
 		receiver.setEmbeddedPartsAsBytes(false);
 		testAttachmentsGuts(receiver);
-		org.springframework.messaging.Message<?>[] messages = (org.springframework.messaging.Message<?>[]) receiver
-				.receive();
+		org.springframework.messaging.Message<?>[] messages =
+				(org.springframework.messaging.Message<?>[]) receiver.receive();
 		Object content = messages[0].getPayload();
-		assertThat(content, instanceOf(Multipart.class));
-		assertEquals("bar", ((Multipart) content).getBodyPart(0).getContent().toString().trim());
-		assertEquals("foo", ((Multipart) content).getBodyPart(1).getContent().toString().trim());
+		assertThat(content).isInstanceOf(Multipart.class);
+		assertThat(((Multipart) content).getBodyPart(0).getContent().toString().trim()).isEqualTo("bar");
+		assertThat(((Multipart) content).getBodyPart(1).getContent().toString().trim()).isEqualTo("foo");
 	}
 
 	private Folder testAttachmentsGuts(final ImapMailReceiver receiver) throws MessagingException, IOException {
@@ -798,7 +801,7 @@ public class ImapMailReceiverTests {
 		given(folder.isOpen()).willReturn(true);
 
 		Message message = new MimeMessage(null, new ClassPathResource("test.mail").getInputStream());
-		given(folder.search((SearchTerm) Mockito.any())).willReturn(new Message[] { message });
+		given(folder.search(Mockito.any())).willReturn(new Message[] { message });
 		given(store.getFolder(Mockito.any(URLName.class))).willReturn(folder);
 		given(folder.getPermanentFlags()).willReturn(new Flags(Flags.Flag.USER));
 		DirectFieldAccessor df = new DirectFieldAccessor(receiver);
@@ -815,14 +818,17 @@ public class ImapMailReceiverTests {
 		ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
 		taskScheduler.initialize();
 		adapter.setTaskScheduler(taskScheduler);
+		adapter.setReconnectDelay(1);
 		adapter.start();
 		ExecutorService exec = TestUtils.getPropertyValue(adapter, "sendingTaskExecutor", ExecutorService.class);
 		adapter.stop();
-		assertTrue(exec.isShutdown());
+		assertThat(exec.isShutdown()).isTrue();
 		adapter.start();
 		exec = TestUtils.getPropertyValue(adapter, "sendingTaskExecutor", ExecutorService.class);
 		adapter.stop();
-		assertTrue(exec.isShutdown());
+		assertThat(exec.isShutdown()).isTrue();
+
+		taskScheduler.shutdown();
 	}
 
 	@Test
@@ -836,7 +842,7 @@ public class ImapMailReceiverTests {
 
 			private boolean firstDone;
 
-			TestReceiver() {
+			private TestReceiver() {
 				setSearchTermStrategy(searchTermStrategy);
 			}
 
@@ -848,7 +854,7 @@ public class ImapMailReceiverTests {
 					given(folder.getMessages())
 							.willReturn(!this.firstDone ? messages1 : messages2);
 				}
-				catch (MessagingException e) {
+				catch (MessagingException ignored) {
 				}
 				return folder;
 			}
@@ -864,12 +870,12 @@ public class ImapMailReceiverTests {
 		}
 		ImapMailReceiver receiver = new TestReceiver();
 		Message[] received = (Message[]) receiver.receive();
-		assertEquals(1, received.length);
-		assertSame(message1, received[0]);
+		assertThat(received.length).isEqualTo(1);
+		assertThat(received[0]).isSameAs(message1);
 		received = (Message[]) receiver.receive();
-		assertEquals(1, received.length);
-		assertSame(messages2, received);
-		assertSame(message2, received[0]);
+		assertThat(received.length).isEqualTo(1);
+		assertThat(received).isSameAs(messages2);
+		assertThat(received[0]).isSameAs(message2);
 	}
 
 	@Test
@@ -900,15 +906,17 @@ public class ImapMailReceiverTests {
 		ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
 		taskScheduler.initialize();
 		adapter.setTaskScheduler(taskScheduler);
-		adapter.setReconnectDelay(50);
+		adapter.setReconnectDelay(1);
 		adapter.afterPropertiesSet();
 		final CountDownLatch latch = new CountDownLatch(3);
 		adapter.setApplicationEventPublisher(e -> {
 			latch.countDown();
 		});
 		adapter.start();
-		assertTrue(latch.await(60, TimeUnit.SECONDS));
+		assertThat(latch.await(60, TimeUnit.SECONDS)).isTrue();
 		verify(store, atLeast(3)).connect();
+
+		adapter.stop();
 		taskScheduler.shutdown();
 	}
 

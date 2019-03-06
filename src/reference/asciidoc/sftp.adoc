@@ -371,7 +371,9 @@ Once the files have been retrieved, an additional filter is applied to the files
 By default, this is an`AcceptOnceFileListFilter`, which, as discussed in this section, retains state in memory and does not consider the file's modified time.
 Unless your application removes files after processing, the adapter re-processes the files on disk by default after an application restart.
 
-Also, if you configure the `filter` to use a `FtpPersistentAcceptOnceFileListFilter` and the remote file timestamp changes (causing it to be re-fetched), the default local filter does not allow this new file to be processed.
+Also, if you configure the `filter` to use a `SftpPersistentAcceptOnceFileListFilter` and the remote file timestamp changes (causing it to be re-fetched), the default local filter does not allow this new file to be processed.
+
+For more information about this filter, and how it is used, see <<remote-persistent-flf>>.
 
 You can use the `local-filter` attribute to configure the behavior of the local file system filter.
 Starting with version 4.3.8, a `FileSystemPersistentAcceptOnceFileListFilter` is configured by default.
@@ -469,7 +471,7 @@ The preceding configuration works for any `ResettableFileListFilter`.
 Starting with version 5.0, the inbound channel adapter can build sub-directories locally, according to the generated local file name.
 That can be a remote sub-path as well.
 To be able to read a local directory recursively for modification according to the hierarchy support, you can now supply an internal `FileReadingMessageSource` with a new `RecursiveDirectoryScanner` based on the `Files.walk()` algorithm.
-See https://docs.spring.io/spring-integration/api/org/springframework/integration/file/remote/synchronizer/AbstractInboundFileSynchronizingMessageSource.html#setScanner-org.springframework.integration.file.DirectoryScanner[`AbstractInboundFileSynchronizingMessageSource.setScanner()]` for more information.
+See https://docs.spring.io/spring-integration/api/org/springframework/integration/file/remote/synchronizer/AbstractInboundFileSynchronizingMessageSource.html#setScanner-org.springframework.integration.file.DirectoryScanner[`AbstractInboundFileSynchronizingMessageSource.setScanner()`] for more information.
 Also, you can now switch the `AbstractInboundFileSynchronizingMessageSource` to the `WatchService`-based `DirectoryScanner` by using `setUseWatchService()` option.
 It is also configured for all the `WatchEventType` instances to react for any modifications in local directory.
 The reprocessing sample shown earlier is based on the built-in functionality of the `FileReadingMessageSource.WatchServiceDirectoryScanner`, which uses `ResettableFileListFilter.remove()` when the file is deleted (`StandardWatchEventKinds.ENTRY_DELETE`) from the local directory.
@@ -560,7 +562,7 @@ public class SftpJavaApplication {
     @Bean
     public IntegrationFlow sftpInboundFlow() {
         return IntegrationFlows
-            .from(s -> s.sftp(this.sftpSessionFactory)
+            .from(Sftp.inboundAdapter(this.sftpSessionFactory)
                     .preserveTimestamp(true)
                     .remoteDirectory("foo")
                     .regexFilter(".*\\.txt$")
@@ -621,6 +623,8 @@ By default, this filter is also applied together with the filename pattern (or r
 If you need to allow duplicates, you can use the `AcceptAllFileListFilter`.
 You can handle any other use cases by using `CompositeFileListFilter` (or `ChainFileListFilter`).
 The Java configuration <<sftp-streaming-java-config,shown later>> shows one technique to remove the remote file after processing, avoiding duplicates.
+
+For more information about the `SftpPersistentAcceptOnceFileListFilter`, and how it is used, see <<remote-persistent-flf>>.
 
 You can use the `max-fetch-size` attribute to limit the number of files fetched on each poll when a fetch is necessary.
 Set it to `1` and use a persistent filter when running in a clustered environment.
@@ -1176,7 +1180,8 @@ Using the `rm` Command
 
 The `rm` command has no options.
 
-If the remove operation was successful, the resulting message payload is `Boolean.TRUE`. Otherwise, the message payload is `Boolean.FALSE`.
+If the remove operation was successful, the resulting message payload is `Boolean.TRUE`.
+Otherwise, the message payload is `Boolean.FALSE`.
 The `file_remoteDirectory` header holds the remote directory, and the `file_remoteFile` header holds the file name.
 
 ==== Using the `mv` Command
@@ -1228,11 +1233,11 @@ The payload of the message sent to the `toSplitter` channel is a list of `String
 If you omitted `command-options="-1"`, the payload would be a list of `FileInfo` objects.
 You can provide options as a space-delimited list (for example, `command-options="-1 -dirs -links"`).
 
-Starting with version 4.2, the `GET`, `MGET`, `PUT`, and `MPUT` commands support a `FileExistsMode` property (`mode`
-when using the namespace support). This affects the behavior when the local file exists (`GET` and `MGET`) or the remote
-file exists (`PUT` and `MPUT`). The supported modes are `REPLACE`, `APPEND`, `FAIL`, and `IGNORE`.
-For backwards compatibility, the default mode for `PUT` and `MPUT` operations is `REPLACE`. For `GET` and `MGET`
-operations, the default is `FAIL`.
+Starting with version 4.2, the `GET`, `MGET`, `PUT`, and `MPUT` commands support a `FileExistsMode` property (`mode` when using the namespace support).
+This affects the behavior when the local file exists (`GET` and `MGET`) or the remote file exists (`PUT` and `MPUT`).
+The supported modes are `REPLACE`, `APPEND`, `FAIL`, and `IGNORE`.
+For backwards compatibility, the default mode for `PUT` and `MPUT` operations is `REPLACE`.
+For `GET` and `MGET` operations, the default is `FAIL`.
 
 ==== Configuring with Java Configuration
 
@@ -1295,9 +1300,8 @@ public class SftpJavaApplication {
     @Bean
     public IntegrationFlow sftpMGetFlow() {
         return IntegrationFlows.from("sftpMgetInputChannel")
-            .handleWithAdapter(h ->
-                h.sftpGateway(sftpSessionFactory(), AbstractRemoteFileOutboundGateway.Command.MGET,
-                    "payload")
+            .handle(Sftp.outboundGateway(sftpSessionFactory(),
+                            AbstractRemoteFileOutboundGateway.Command.MGET, "payload")
                     .options(AbstractRemoteFileOutboundGateway.Option.RECURSIVE)
                     .regexFileNameFilter("(subSftpSource|.*1.txt)")
                     .localDirectoryExpression("'myDir/' + #remoteDirectory")

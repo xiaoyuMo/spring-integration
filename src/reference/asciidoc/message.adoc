@@ -104,7 +104,8 @@ If the value is a `String`, it must represent a bean name or have been generated
 |===
 
 Many inbound and outbound adapter implementations also provide or expect certain headers, and you can configure additional user-defined headers.
-Constants for these headers can be found in those modules where such headers exist -- for example. `AmqpHeaders`, `JmsHeaders`, and so on.
+Constants for these headers can be found in those modules where such headers exist -- for example.
+`AmqpHeaders`, `JmsHeaders`, and so on.
 
 [[message-header-accessor]]
 ===== `MessageHeaderAccessor` API
@@ -195,16 +196,17 @@ The following table describes headers that also appear in the `IntegrationMessag
 | Header Type
 | Usage
 
-| `IntegrationMessageHeaderAccessor.
-SEQUENCE_DETAILS`
-| `java.util.`
-`List<List<Object>>`
-| A stack of correlation data used when nested correlation is needed (for example, `splitter->...->splitter->...->aggregator->...->aggregator`).
+| IntegrationMessageHeaderAccessor.
+SEQUENCE_DETAILS
+| java.util.
+List<List<Object>>
+| A stack of correlation data used when nested correlation is needed (for example,
+`splitter->...->splitter->...->aggregator->...->aggregator`).
 
-| `IntegrationMessageHeaderAccessor.
-ROUTING_SLIP`
-| `java.util.`
-`Map<List<Object>, Integer>`
+| IntegrationMessageHeaderAccessor.
+ROUTING_SLIP
+| java.util.
+Map<List<Object>, Integer>
 | See <<routing-slip>>.
 |===
 

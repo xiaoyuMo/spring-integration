@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,7 @@
 
 package org.springframework.integration.resource;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
 import java.util.Collection;
@@ -31,7 +27,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.springframework.beans.factory.BeanCreationException;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.core.io.Resource;
 import org.springframework.integration.channel.QueueChannel;
@@ -73,35 +68,36 @@ public class ResourceInboundChannelAdapterParserTests {
 
 	@Test
 	public void testDefaultConfig() {
-		ApplicationContext context = new ClassPathXmlApplicationContext("ResourcePatternResolver-config.xml",
-				this.getClass());
+		ClassPathXmlApplicationContext context =
+				new ClassPathXmlApplicationContext("ResourcePatternResolver-config.xml", getClass());
 		SourcePollingChannelAdapter resourceAdapter = context.getBean("resourceAdapterDefault",
 				SourcePollingChannelAdapter.class);
 		ResourceRetrievingMessageSource source = TestUtils.getPropertyValue(resourceAdapter, "source",
 				ResourceRetrievingMessageSource.class);
-		assertNotNull(source);
+		assertThat(source).isNotNull();
 		boolean autoStartup = TestUtils.getPropertyValue(resourceAdapter, "autoStartup", Boolean.class);
-		assertFalse(autoStartup);
+		assertThat(autoStartup).isFalse();
 
-		assertEquals("/**/*", TestUtils.getPropertyValue(source, "pattern"));
-		assertEquals(context, TestUtils.getPropertyValue(source, "patternResolver"));
+		assertThat(TestUtils.getPropertyValue(source, "pattern")).isEqualTo("/**/*");
+		assertThat(TestUtils.getPropertyValue(source, "patternResolver")).isEqualTo(context);
+		context.close();
 	}
 
 	@Test(expected = BeanCreationException.class)
 	public void testDefaultConfigNoLocationPattern() {
-		new ClassPathXmlApplicationContext("ResourcePatternResolver-config-fail.xml", this.getClass()).close();
+		new ClassPathXmlApplicationContext("ResourcePatternResolver-config-fail.xml", getClass()).close();
 	}
 
 	@Test
 	public void testCustomPatternResolver() {
-		ClassPathXmlApplicationContext context = new ClassPathXmlApplicationContext(
-				"ResourcePatternResolver-config-custom.xml", this.getClass());
+		ClassPathXmlApplicationContext context =
+				new ClassPathXmlApplicationContext("ResourcePatternResolver-config-custom.xml", getClass());
 		SourcePollingChannelAdapter resourceAdapter = context.getBean("resourceAdapterDefault",
 				SourcePollingChannelAdapter.class);
 		ResourceRetrievingMessageSource source = TestUtils.getPropertyValue(resourceAdapter, "source",
 				ResourceRetrievingMessageSource.class);
-		assertNotNull(source);
-		assertEquals(context.getBean("customResolver"), TestUtils.getPropertyValue(source, "patternResolver"));
+		assertThat(source).isNotNull();
+		assertThat(TestUtils.getPropertyValue(source, "patternResolver")).isEqualTo(context.getBean("customResolver"));
 		context.close();
 	}
 
@@ -118,10 +114,10 @@ public class ResourceInboundChannelAdapterParserTests {
 				"ResourcePatternResolver-config-usage.xml", this.getClass());
 		QueueChannel resultChannel = context.getBean("resultChannel", QueueChannel.class);
 		Message<Resource[]> message = (Message<Resource[]>) resultChannel.receive(10000);
-		assertNotNull(message);
+		assertThat(message).isNotNull();
 		Resource[] resources = message.getPayload();
 		for (Resource resource : resources) {
-			assertTrue(resource.getURI().toString().contains("testUsage"));
+			assertThat(resource.getURI().toString().contains("testUsage")).isTrue();
 		}
 		context.close();
 	}
@@ -141,16 +137,16 @@ public class ResourceInboundChannelAdapterParserTests {
 				SourcePollingChannelAdapter.class);
 		ResourceRetrievingMessageSource source = TestUtils.getPropertyValue(resourceAdapter, "source",
 				ResourceRetrievingMessageSource.class);
-		assertNotNull(source);
+		assertThat(source).isNotNull();
 		TestCollectionFilter customFilter = context.getBean("customFilter", TestCollectionFilter.class);
-		assertEquals(customFilter, TestUtils.getPropertyValue(source, "filter"));
+		assertThat(TestUtils.getPropertyValue(source, "filter")).isEqualTo(customFilter);
 
-		assertFalse(customFilter.invoked);
+		assertThat(customFilter.invoked).isFalse();
 		resourceAdapter.start();
 		QueueChannel resultChannel = context.getBean("resultChannel", QueueChannel.class);
 		Message<Resource[]> message = (Message<Resource[]>) resultChannel.receive(10000);
-		assertNotNull(message);
-		assertTrue(customFilter.invoked);
+		assertThat(message).isNotNull();
+		assertThat(customFilter.invoked).isTrue();
 		context.close();
 	}
 
@@ -168,8 +164,8 @@ public class ResourceInboundChannelAdapterParserTests {
 				SourcePollingChannelAdapter.class);
 		ResourceRetrievingMessageSource source = TestUtils.getPropertyValue(resourceAdapter, "source",
 				ResourceRetrievingMessageSource.class);
-		assertNotNull(source);
-		assertNull(TestUtils.getPropertyValue(source, "filter"));
+		assertThat(source).isNotNull();
+		assertThat(TestUtils.getPropertyValue(source, "filter")).isNull();
 		context.close();
 	}
 

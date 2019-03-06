@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,13 +33,13 @@ import org.springframework.integration.support.management.MessageHandlerMetrics;
 import org.springframework.integration.support.management.MetricsContext;
 import org.springframework.integration.support.management.Statistics;
 import org.springframework.integration.support.management.TrackableComponent;
+import org.springframework.integration.support.management.metrics.MeterFacade;
 import org.springframework.integration.support.management.metrics.MetricsCaptor;
 import org.springframework.integration.support.management.metrics.SampleFacade;
 import org.springframework.integration.support.management.metrics.TimerFacade;
 import org.springframework.integration.support.utils.IntegrationUtils;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHandler;
-import org.springframework.messaging.MessagingException;
 import org.springframework.util.Assert;
 
 import reactor.core.CoreSubscriber;
@@ -48,7 +48,7 @@ import reactor.core.CoreSubscriber;
  * Base class for MessageHandler implementations that provides basic validation
  * and error handling capabilities. Asserts that the incoming Message is not
  * null and that it does not contain a null payload. Converts checked exceptions
- * into runtime {@link MessagingException}s.
+ * into runtime {@link org.springframework.messaging.MessagingException}s.
  *
  * @author Mark Fisher
  * @author Oleg Zhurakousky
@@ -133,37 +133,38 @@ public abstract class AbstractMessageHandler extends IntegrationObjectSupport
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		if (this.statsEnabled) {
 			this.handlerMetrics.setFullStatsEnabled(true);
 		}
 	}
 
 	@Override
-	public void handleMessage(Message<?> message) {
+	public void handleMessage(Message<?> messageArg) {
+		Message<?> message = messageArg;
 		Assert.notNull(message, "Message must not be null");
 		Assert.notNull(message.getPayload(), "Message payload must not be null"); //NOSONAR - false positive
 		if (this.loggingEnabled && this.logger.isDebugEnabled()) {
 			this.logger.debug(this + " received message: " + message);
 		}
 		MetricsContext start = null;
-		boolean countsEnabled = this.countsEnabled;
-		AbstractMessageHandlerMetrics handlerMetrics = this.handlerMetrics;
+		boolean countsAreEnabled = this.countsEnabled;
+		AbstractMessageHandlerMetrics metrics = this.handlerMetrics;
 		SampleFacade sample = null;
-		if (countsEnabled && this.metricsCaptor != null) {
+		if (countsAreEnabled && this.metricsCaptor != null) {
 			sample = this.metricsCaptor.start();
 		}
 		try {
 			if (this.shouldTrack) {
 				message = MessageHistory.write(message, this, getMessageBuilderFactory());
 			}
-			if (countsEnabled) {
-				start = handlerMetrics.beforeHandle();
+			if (countsAreEnabled) {
+				start = metrics.beforeHandle();
 				handleMessageInternal(message);
 				if (sample != null) {
 					sample.stop(sendTimer());
 				}
-				handlerMetrics.afterHandle(start, true);
+				metrics.afterHandle(start, true);
 			}
 			else {
 				handleMessageInternal(message);
@@ -173,8 +174,8 @@ public abstract class AbstractMessageHandler extends IntegrationObjectSupport
 			if (sample != null) {
 				sample.stop(buildSendTimer(false, e.getClass().getSimpleName()));
 			}
-			if (countsEnabled) {
-				handlerMetrics.afterHandle(start, false);
+			if (countsAreEnabled) {
+				metrics.afterHandle(start, false);
 			}
 			throw IntegrationUtils.wrapInHandlingExceptionIfNecessary(message,
 					() -> "error occurred in message handler [" + this + "]", e);
@@ -337,8 +338,8 @@ public abstract class AbstractMessageHandler extends IntegrationObjectSupport
 	}
 
 	@Override
-	public void destroy() throws Exception {
-		this.timers.forEach(t -> t.remove());
+	public void destroy() {
+		this.timers.forEach(MeterFacade::remove);
 	}
 
 }

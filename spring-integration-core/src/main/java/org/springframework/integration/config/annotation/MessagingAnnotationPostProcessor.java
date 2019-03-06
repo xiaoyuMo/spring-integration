@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.integration.config.annotation;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -36,6 +37,7 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.BeanDefinitionBuilder;
@@ -71,17 +73,20 @@ import org.springframework.util.StringUtils;
  * @author Gary Russell
  * @author Rick Hogge
  */
-public class MessagingAnnotationPostProcessor implements BeanPostProcessor, BeanFactoryAware, InitializingBean {
+public class MessagingAnnotationPostProcessor implements BeanPostProcessor, BeanFactoryAware, InitializingBean,
+		SmartInitializingSingleton {
 
 	protected final Log logger = LogFactory.getLog(this.getClass()); // NOSONAR
 
-	private final Map<Class<? extends Annotation>, MethodAnnotationPostProcessor<?>> postProcessors =
-			new HashMap<Class<? extends Annotation>, MethodAnnotationPostProcessor<?>>();
+	private final Map<Class<? extends Annotation>, MethodAnnotationPostProcessor<?>> postProcessors = new HashMap<>();
 
 	private ConfigurableListableBeanFactory beanFactory;
 
-	private final Set<Class<?>> noAnnotationsCache =
-			Collections.newSetFromMap(new ConcurrentHashMap<Class<?>, Boolean>(256));
+	private final Set<Class<?>> noAnnotationsCache = Collections.newSetFromMap(new ConcurrentHashMap<>(256));
+
+	private final List<Runnable> methodsToPostProcessAfterContextInitialization = new ArrayList<>();
+
+	private volatile boolean initialized;
 
 	@Override
 	public void setBeanFactory(BeanFactory beanFactory) {
@@ -99,7 +104,7 @@ public class MessagingAnnotationPostProcessor implements BeanPostProcessor, Bean
 		Assert.notNull(this.beanFactory, "BeanFactory must not be null");
 		((BeanDefinitionRegistry) this.beanFactory).registerBeanDefinition(
 				IntegrationContextUtils.DISPOSABLES_BEAN_NAME,
-				BeanDefinitionBuilder.genericBeanDefinition(Disposables.class, () -> new Disposables())
+				BeanDefinitionBuilder.genericBeanDefinition(Disposables.class, Disposables::new)
 						.getRawBeanDefinition());
 		this.postProcessors.put(Filter.class, new FilterAnnotationPostProcessor(this.beanFactory));
 		this.postProcessors.put(Router.class, new RouterAnnotationPostProcessor(this.beanFactory));
@@ -124,7 +129,15 @@ public class MessagingAnnotationPostProcessor implements BeanPostProcessor, Bean
 
 	public <A extends Annotation> void addMessagingAnnotationPostProcessor(Class<A> annotation,
 			MethodAnnotationPostProcessor<A> postProcessor) {
+
 		this.postProcessors.put(annotation, postProcessor);
+	}
+
+	@Override
+	public void afterSingletonsInstantiated() {
+		this.initialized = true;
+		this.methodsToPostProcessAfterContextInitialization.forEach(Runnable::run);
+		this.methodsToPostProcessAfterContextInitialization.clear();
 	}
 
 	@Override
@@ -143,38 +156,43 @@ public class MessagingAnnotationPostProcessor implements BeanPostProcessor, Bean
 			return bean;
 		}
 
-		ReflectionUtils.doWithMethods(beanClass, method -> {
-			Map<Class<? extends Annotation>, List<Annotation>> annotationChains = new HashMap<>();
-			for (Class<? extends Annotation> annotationType :
-					this.postProcessors.keySet()) {
-				if (AnnotatedElementUtils.isAnnotated(method, annotationType.getName())) {
-					List<Annotation> annotationChain = getAnnotationChain(method, annotationType);
-					if (annotationChain.size() > 0) {
-						annotationChains.put(annotationType, annotationChain);
-					}
-				}
-			}
-			if (StringUtils.hasText(MessagingAnnotationUtils.endpointIdValue(method))
-					&& annotationChains.keySet().size() > 1) {
-				throw new IllegalStateException("@EndpointId on " + method.toGenericString()
-						+ " can only have one EIP annotation, found: " + annotationChains.keySet().size());
-			}
-			for (Entry<Class<? extends Annotation>, List<Annotation>> entry : annotationChains.entrySet()) {
-				Class<? extends Annotation> annotationType = entry.getKey();
-				List<Annotation> annotations = entry.getValue();
-				processAnnotationTypeOnMethod(bean, beanName, method, annotationType, annotations);
-			}
-
-			if (annotationChains.size() == 0) {
-				this.noAnnotationsCache.add(beanClass);
-			}
-		}, ReflectionUtils.USER_DECLARED_METHODS);
+		ReflectionUtils.doWithMethods(beanClass,
+				method -> doWithMethod(method, bean, beanName, beanClass),
+				ReflectionUtils.USER_DECLARED_METHODS);
 
 		return bean;
 	}
 
+	private void doWithMethod(Method method, Object bean, String beanName, Class<?> beanClass) {
+		Map<Class<? extends Annotation>, List<Annotation>> annotationChains = new HashMap<>();
+		for (Class<? extends Annotation> annotationType :
+				this.postProcessors.keySet()) {
+			if (AnnotatedElementUtils.isAnnotated(method, annotationType.getName())) {
+				List<Annotation> annotationChain = getAnnotationChain(method, annotationType);
+				if (annotationChain.size() > 0) {
+					annotationChains.put(annotationType, annotationChain);
+				}
+			}
+		}
+		if (StringUtils.hasText(MessagingAnnotationUtils.endpointIdValue(method))
+				&& annotationChains.keySet().size() > 1) {
+			throw new IllegalStateException("@EndpointId on " + method.toGenericString()
+					+ " can only have one EIP annotation, found: " + annotationChains.keySet().size());
+		}
+		for (Entry<Class<? extends Annotation>, List<Annotation>> entry : annotationChains.entrySet()) {
+			Class<? extends Annotation> annotationType = entry.getKey();
+			List<Annotation> annotations = entry.getValue();
+			processAnnotationTypeOnMethod(bean, beanName, method, annotationType, annotations);
+		}
+
+		if (annotationChains.size() == 0) {
+			this.noAnnotationsCache.add(beanClass);
+		}
+	}
+
 	protected void processAnnotationTypeOnMethod(Object bean, String beanName, Method method,
 			Class<? extends Annotation> annotationType, List<Annotation> annotations) {
+
 		MethodAnnotationPostProcessor<?> postProcessor =
 				MessagingAnnotationPostProcessor.this.postProcessors.get(annotationType);
 		if (postProcessor != null && postProcessor.shouldCreateEndpoint(method, annotations)) {
@@ -189,36 +207,53 @@ public class MessagingAnnotationPostProcessor implements BeanPostProcessor, Bean
 							+ "and its method: '" + method + "'", e);
 				}
 			}
-			Object result = postProcessor.postProcess(bean, beanName, targetMethod, annotations);
-			if (result != null && result instanceof AbstractEndpoint) {
-				AbstractEndpoint endpoint = (AbstractEndpoint) result;
-				String autoStartup = MessagingAnnotationUtils.resolveAttribute(annotations, "autoStartup",
-						String.class);
-				if (StringUtils.hasText(autoStartup)) {
-					autoStartup = getBeanFactory().resolveEmbeddedValue(autoStartup);
-					if (StringUtils.hasText(autoStartup)) {
-						endpoint.setAutoStartup(Boolean.parseBoolean(autoStartup));
-					}
-				}
 
-				String phase = MessagingAnnotationUtils.resolveAttribute(annotations, "phase", String.class);
-				if (StringUtils.hasText(phase)) {
-					phase = getBeanFactory().resolveEmbeddedValue(phase);
-					if (StringUtils.hasText(phase)) {
-						endpoint.setPhase(Integer.parseInt(phase));
-					}
-				}
-
-				Role role = AnnotationUtils.findAnnotation(method, Role.class);
-				if (role != null) {
-					endpoint.setRole(role.value());
-				}
-
-				String endpointBeanName = generateBeanName(beanName, method, annotationType);
-				endpoint.setBeanName(endpointBeanName);
-				getBeanFactory().registerSingleton(endpointBeanName, endpoint);
-				getBeanFactory().initializeBean(endpoint, endpointBeanName);
+			if (this.initialized) {
+				postProcessMethodAndRegisterEndpointIfAny(bean, beanName, method, annotationType, annotations,
+						postProcessor, targetMethod);
 			}
+			else {
+				Method methodToPostProcess = targetMethod;
+				this.methodsToPostProcessAfterContextInitialization.add(() ->
+						postProcessMethodAndRegisterEndpointIfAny(bean, beanName, method, annotationType, annotations,
+								postProcessor, methodToPostProcess));
+			}
+		}
+	}
+
+	private void postProcessMethodAndRegisterEndpointIfAny(Object bean, String beanName, Method method,
+			Class<? extends Annotation> annotationType, List<Annotation> annotations,
+			MethodAnnotationPostProcessor<?> postProcessor, Method targetMethod) {
+
+		Object result = postProcessor.postProcess(bean, beanName, targetMethod, annotations);
+		if (result instanceof AbstractEndpoint) {
+			AbstractEndpoint endpoint = (AbstractEndpoint) result;
+			String autoStartup = MessagingAnnotationUtils.resolveAttribute(annotations, "autoStartup",
+					String.class);
+			if (StringUtils.hasText(autoStartup)) {
+				autoStartup = getBeanFactory().resolveEmbeddedValue(autoStartup);
+				if (StringUtils.hasText(autoStartup)) {
+					endpoint.setAutoStartup(Boolean.parseBoolean(autoStartup));
+				}
+			}
+
+			String phase = MessagingAnnotationUtils.resolveAttribute(annotations, "phase", String.class);
+			if (StringUtils.hasText(phase)) {
+				phase = getBeanFactory().resolveEmbeddedValue(phase);
+				if (StringUtils.hasText(phase)) {
+					endpoint.setPhase(Integer.parseInt(phase));
+				}
+			}
+
+			Role role = AnnotationUtils.findAnnotation(method, Role.class);
+			if (role != null) {
+				endpoint.setRole(role.value());
+			}
+
+			String endpointBeanName = generateBeanName(beanName, method, annotationType);
+			endpoint.setBeanName(endpointBeanName);
+			getBeanFactory().registerSingleton(endpointBeanName, endpoint);
+			getBeanFactory().initializeBean(endpoint, endpointBeanName);
 		}
 	}
 
@@ -229,13 +264,15 @@ public class MessagingAnnotationPostProcessor implements BeanPostProcessor, Bean
 	 */
 	protected List<Annotation> getAnnotationChain(Method method, Class<? extends Annotation> annotationType) {
 		Annotation[] annotations = AnnotationUtils.getAnnotations(method);
-		List<Annotation> annotationChain = new LinkedList<Annotation>();
-		Set<Annotation> visited = new HashSet<Annotation>();
-		for (Annotation ann : annotations) {
-			recursiveFindAnnotation(annotationType, ann, annotationChain, visited);
-			if (annotationChain.size() > 0) {
-				Collections.reverse(annotationChain);
-				return annotationChain;
+		List<Annotation> annotationChain = new LinkedList<>();
+		if (annotations != null) {
+			Set<Annotation> visited = new HashSet<>();
+			for (Annotation ann : annotations) {
+				recursiveFindAnnotation(annotationType, ann, annotationChain, visited);
+				if (annotationChain.size() > 0) {
+					Collections.reverse(annotationChain);
+					return annotationChain;
+				}
 			}
 		}
 		return annotationChain;

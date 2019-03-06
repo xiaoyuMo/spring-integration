@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,7 @@
 
 package org.springframework.integration.endpoint;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import org.junit.Test;
@@ -47,28 +43,28 @@ public class ServiceActivatorEndpointTests {
 	@Test
 	public void outputChannel() {
 		QueueChannel channel = new QueueChannel(1);
-		ServiceActivatingHandler endpoint = this.createEndpoint();
+		ServiceActivatingHandler endpoint = createEndpoint();
 		endpoint.setOutputChannel(channel);
 		Message<?> message = MessageBuilder.withPayload("foo").build();
 		endpoint.handleMessage(message);
 		Message<?> reply = channel.receive(0);
-		assertNotNull(reply);
-		assertEquals("FOO", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("FOO");
 	}
 
 	@Test
 	public void outputChannelTakesPrecedence() {
 		QueueChannel channel1 = new QueueChannel(1);
 		QueueChannel channel2 = new QueueChannel(1);
-		ServiceActivatingHandler endpoint = this.createEndpoint();
+		ServiceActivatingHandler endpoint = createEndpoint();
 		endpoint.setOutputChannel(channel1);
 		Message<?> message = MessageBuilder.withPayload("foo").setReplyChannel(channel2).build();
 		endpoint.handleMessage(message);
 		Message<?> reply1 = channel1.receive(0);
-		assertNotNull(reply1);
-		assertEquals("FOO", reply1.getPayload());
+		assertThat(reply1).isNotNull();
+		assertThat(reply1.getPayload()).isEqualTo("FOO");
 		Message<?> reply2 = channel2.receive(0);
-		assertNull(reply2);
+		assertThat(reply2).isNull();
 	}
 
 	@Test
@@ -78,8 +74,8 @@ public class ServiceActivatorEndpointTests {
 		Message<?> message = MessageBuilder.withPayload("foo").setReplyChannel(channel).build();
 		endpoint.handleMessage(message);
 		Message<?> reply = channel.receive(0);
-		assertNotNull(reply);
-		assertEquals("FOO", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("FOO");
 	}
 
 	@Test
@@ -98,8 +94,8 @@ public class ServiceActivatorEndpointTests {
 				.setReplyChannelName("testChannel").build();
 		endpoint.handleMessage(message);
 		Message<?> reply = channel.receive(0);
-		assertNotNull(reply);
-		assertEquals("FOO", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("FOO");
 		testApplicationContext.close();
 	}
 
@@ -127,18 +123,18 @@ public class ServiceActivatorEndpointTests {
 				.setReplyChannel(replyChannel1).build();
 		endpoint.handleMessage(testMessage1);
 		Message<?> reply1 = replyChannel1.receive(50);
-		assertNotNull(reply1);
-		assertEquals("foobar", reply1.getPayload());
+		assertThat(reply1).isNotNull();
+		assertThat(reply1.getPayload()).isEqualTo("foobar");
 		Message<?> reply2 = replyChannel2.receive(0);
-		assertNull(reply2);
+		assertThat(reply2).isNull();
 		Message<String> testMessage2 = MessageBuilder.fromMessage(testMessage1)
 				.setReplyChannelName("replyChannel2").build();
 		endpoint.handleMessage(testMessage2);
 		reply1 = replyChannel1.receive(0);
-		assertNull(reply1);
+		assertThat(reply1).isNull();
 		reply2 = replyChannel2.receive(0);
-		assertNotNull(reply2);
-		assertEquals("foobar", reply2.getPayload());
+		assertThat(reply2).isNotNull();
+		assertThat(reply2.getPayload()).isEqualTo("foobar");
 		testApplicationContext.close();
 	}
 
@@ -149,8 +145,8 @@ public class ServiceActivatorEndpointTests {
 		Message<?> message = MessageBuilder.withPayload("foo").setReplyChannel(channel).build();
 		endpoint.handleMessage(message);
 		Message<?> reply = channel.receive(0);
-		assertNotNull(reply);
-		assertEquals("FOO", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("FOO");
 	}
 
 	@Test(expected = MessagingException.class)
@@ -163,21 +159,23 @@ public class ServiceActivatorEndpointTests {
 	@Test
 	public void noReplyMessage() {
 		QueueChannel channel = new QueueChannel(1);
-		ServiceActivatingHandler endpoint = new ServiceActivatingHandler(
-				new TestNullReplyBean(), "handle");
+		ServiceActivatingHandler endpoint = new ServiceActivatingHandler(new TestNullReplyBean(), "handle");
 		endpoint.setOutputChannel(channel);
+		endpoint.setBeanFactory(mock(BeanFactory.class));
+		endpoint.afterPropertiesSet();
 		Message<?> message = MessageBuilder.withPayload("foo").build();
 		endpoint.handleMessage(message);
-		assertNull(channel.receive(0));
+		assertThat(channel.receive(0)).isNull();
 	}
 
 	@Test(expected = ReplyRequiredException.class)
 	public void noReplyMessageWithRequiresReply() {
 		QueueChannel channel = new QueueChannel(1);
-		ServiceActivatingHandler endpoint = new ServiceActivatingHandler(
-				new TestNullReplyBean(), "handle");
+		ServiceActivatingHandler endpoint = new ServiceActivatingHandler(new TestNullReplyBean(), "handle");
 		endpoint.setRequiresReply(true);
 		endpoint.setOutputChannel(channel);
+		endpoint.setBeanFactory(mock(BeanFactory.class));
+		endpoint.afterPropertiesSet();
 		Message<?> message = MessageBuilder.withPayload("foo").build();
 		endpoint.handleMessage(message);
 	}
@@ -185,38 +183,46 @@ public class ServiceActivatorEndpointTests {
 	@Test
 	public void correlationIdNotSetIfMessageIsReturnedUnaltered() {
 		QueueChannel replyChannel = new QueueChannel(1);
-		ServiceActivatingHandler endpoint = new ServiceActivatingHandler(new Object() {
+		ServiceActivatingHandler endpoint =
+				new ServiceActivatingHandler(new Object() {
 
-			@SuppressWarnings("unused")
-			public Message<?> handle(Message<?> message) {
-				return message;
-			}
-		}, "handle");
+					@SuppressWarnings("unused")
+					public Message<?> handle(Message<?> message) {
+						return message;
+					}
+				}, "handle");
+		endpoint.setBeanFactory(mock(BeanFactory.class));
+		endpoint.afterPropertiesSet();
+
 		Message<String> message = MessageBuilder.withPayload("test")
 				.setReplyChannel(replyChannel).build();
 		endpoint.handleMessage(message);
 		Message<?> reply = replyChannel.receive(500);
-		assertNull(new IntegrationMessageHeaderAccessor(reply).getCorrelationId());
+		assertThat(new IntegrationMessageHeaderAccessor(reply).getCorrelationId()).isNull();
 	}
 
 	@Test
 	public void correlationIdSetByHandlerTakesPrecedence() {
 		QueueChannel replyChannel = new QueueChannel(1);
-		ServiceActivatingHandler endpoint = new ServiceActivatingHandler(new Object() {
+		ServiceActivatingHandler endpoint =
+				new ServiceActivatingHandler(new Object() {
 
-			@SuppressWarnings("unused")
-			public Message<?> handle(Message<?> message) {
-				return MessageBuilder.fromMessage(message)
-						.setCorrelationId("ABC-123").build();
-			}
-		}, "handle");
+					@SuppressWarnings("unused")
+					public Message<?> handle(Message<?> message) {
+						return MessageBuilder.fromMessage(message)
+								.setCorrelationId("ABC-123").build();
+					}
+				}, "handle");
+		endpoint.setBeanFactory(mock(BeanFactory.class));
+		endpoint.afterPropertiesSet();
+
 		Message<String> message = MessageBuilder.withPayload("test")
 				.setReplyChannel(replyChannel).build();
 		endpoint.handleMessage(message);
 		Message<?> reply = replyChannel.receive(500);
 		Object correlationId = new IntegrationMessageHeaderAccessor(reply).getCorrelationId();
-		assertFalse(message.getHeaders().getId().equals(correlationId));
-		assertEquals("ABC-123", correlationId);
+		assertThat(correlationId).isNotEqualTo(message.getHeaders().getId());
+		assertThat(correlationId).isEqualTo("ABC-123");
 	}
 
 	@Test
@@ -226,13 +232,16 @@ public class ServiceActivatorEndpointTests {
 		endpoint.setBeanFactory(mock);
 		endpoint.afterPropertiesSet();
 		Object beanFactory = TestUtils.getPropertyValue(endpoint, "processor.beanFactory");
-		assertNotNull(beanFactory);
-		assertSame(mock, beanFactory);
+		assertThat(beanFactory).isNotNull();
+		assertThat(beanFactory).isSameAs(mock);
 	}
 
 
 	private ServiceActivatingHandler createEndpoint() {
-		return new ServiceActivatingHandler(new TestBean(), "handle");
+		ServiceActivatingHandler handler = new ServiceActivatingHandler(new TestBean(), "handle");
+		handler.setBeanFactory(mock(BeanFactory.class));
+		handler.afterPropertiesSet();
+		return handler;
 	}
 
 
@@ -240,8 +249,9 @@ public class ServiceActivatorEndpointTests {
 
 		@SuppressWarnings("unused")
 		public Message<?> handle(Message<?> message) {
-			return new GenericMessage<String>(message.getPayload().toString().toUpperCase());
+			return new GenericMessage<>(message.getPayload().toString().toUpperCase());
 		}
+
 	}
 
 
@@ -251,6 +261,7 @@ public class ServiceActivatorEndpointTests {
 		public Message<?> handle(Message<?> message) {
 			return null;
 		}
+
 	}
 
 }

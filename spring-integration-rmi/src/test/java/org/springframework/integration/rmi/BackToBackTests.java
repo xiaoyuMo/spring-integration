@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2017 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,8 @@
 
 package org.springframework.integration.rmi;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 
@@ -29,7 +26,10 @@ import org.junit.runner.RunWith;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.support.AbstractApplicationContext;
+import org.springframework.integration.MessageDispatchingException;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageDeliveryException;
+import org.springframework.messaging.MessageHandlingException;
 import org.springframework.messaging.PollableChannel;
 import org.springframework.messaging.SubscribableChannel;
 import org.springframework.messaging.support.GenericMessage;
@@ -41,6 +41,7 @@ import org.springframework.transaction.TransactionDefinition;
 /**
  * @author Gary Russell
  * @author Artem Bilan
+ *
  * @since 3.0
  *
  */
@@ -70,31 +71,28 @@ public class BackToBackTests {
 	public void testGood() {
 		good.send(new GenericMessage<>("foo"));
 		Message<?> reply = this.reply.receive(0);
-		assertNotNull(reply);
-		assertEquals("reply:foo", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("reply:foo");
 
 		verify(this.transactionManager).getTransaction(any(TransactionDefinition.class));
 	}
 
 	@Test
 	public void testBad() {
-		bad.send(new GenericMessage<String>("foo"));
+		bad.send(new GenericMessage<>("foo"));
 		Message<?> reply = this.reply.receive(0);
-		assertNotNull(reply);
-		assertEquals("error:foo", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("error:foo");
 	}
 
 	@Test
 	public void testUgly() {
 		context.setId("context");
-		try {
-			ugly.send(new GenericMessage<String>("foo"));
-			fail("Expected exception");
-		}
-		catch (Exception e) {
-			assertThat(e.getCause().getMessage(),
-					containsString("Dispatcher has no subscribers for channel 'context.baz'."));
-		}
+		assertThatExceptionOfType(MessageHandlingException.class)
+				.isThrownBy(() -> ugly.send(new GenericMessage<>("foo")))
+				.withCauseInstanceOf(MessageDeliveryException.class)
+				.withRootCauseInstanceOf(MessageDispatchingException.class)
+				.withMessageContaining("Dispatcher has no subscribers for channel 'context.baz'.");
 	}
 
 }

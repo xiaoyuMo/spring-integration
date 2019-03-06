@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2010 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,12 @@
 
 package org.springframework.integration.endpoint;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import org.junit.Test;
 
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.integration.IntegrationMessageHeaderAccessor;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.channel.QueueChannel;
@@ -45,11 +46,13 @@ public class CorrelationIdTests {
 		QueueChannel outputChannel = new QueueChannel(1);
 		ServiceActivatingHandler serviceActivator = new ServiceActivatingHandler(new TestBean(), "upperCase");
 		serviceActivator.setOutputChannel(outputChannel);
+		serviceActivator.setBeanFactory(mock(BeanFactory.class));
+		serviceActivator.afterPropertiesSet();
 		EventDrivenConsumer endpoint = new EventDrivenConsumer(inputChannel, serviceActivator);
 		endpoint.start();
-		assertTrue(inputChannel.send(message));
+		assertThat(inputChannel.send(message)).isTrue();
 		Message<?> reply = outputChannel.receive(0);
-		assertEquals(correlationId, new IntegrationMessageHeaderAccessor(reply).getCorrelationId());
+		assertThat(new IntegrationMessageHeaderAccessor(reply).getCorrelationId()).isEqualTo(correlationId);
 	}
 
 	@Test
@@ -60,16 +63,18 @@ public class CorrelationIdTests {
 		QueueChannel outputChannel = new QueueChannel(1);
 		ServiceActivatingHandler serviceActivator = new ServiceActivatingHandler(new TestBean(), "upperCase");
 		serviceActivator.setOutputChannel(outputChannel);
+		serviceActivator.setBeanFactory(mock(BeanFactory.class));
+		serviceActivator.afterPropertiesSet();
 		EventDrivenConsumer endpoint = new EventDrivenConsumer(inputChannel, serviceActivator);
 		endpoint.start();
-		assertTrue(inputChannel.send(message));
+		assertThat(inputChannel.send(message)).isTrue();
 		Message<?> reply = outputChannel.receive(0);
-		assertEquals(new IntegrationMessageHeaderAccessor(message).getCorrelationId(), new IntegrationMessageHeaderAccessor(reply).getCorrelationId());
-		assertTrue(new IntegrationMessageHeaderAccessor(message).getCorrelationId().equals(new IntegrationMessageHeaderAccessor(reply).getCorrelationId()));
+		assertThat(new IntegrationMessageHeaderAccessor(reply).getCorrelationId())
+				.isEqualTo(new IntegrationMessageHeaderAccessor(message).getCorrelationId());
 	}
 
 	@Test
-	public void testCorrelationNotPassedFromRequestHeaderIfAlreadySetByHandler() throws Exception {
+	public void testCorrelationNotPassedFromRequestHeaderIfAlreadySetByHandler() {
 		Object correlationId = "123-ABC";
 		Message<String> message = MessageBuilder.withPayload("test")
 				.setCorrelationId(correlationId).build();
@@ -77,11 +82,13 @@ public class CorrelationIdTests {
 		QueueChannel outputChannel = new QueueChannel(1);
 		ServiceActivatingHandler serviceActivator = new ServiceActivatingHandler(new TestBean(), "createMessage");
 		serviceActivator.setOutputChannel(outputChannel);
+		serviceActivator.setBeanFactory(mock(BeanFactory.class));
+		serviceActivator.afterPropertiesSet();
 		EventDrivenConsumer endpoint = new EventDrivenConsumer(inputChannel, serviceActivator);
 		endpoint.start();
-		assertTrue(inputChannel.send(message));
+		assertThat(inputChannel.send(message)).isTrue();
 		Message<?> reply = outputChannel.receive(0);
-		assertEquals("456-XYZ", new IntegrationMessageHeaderAccessor(reply).getCorrelationId());
+		assertThat(new IntegrationMessageHeaderAccessor(reply).getCorrelationId()).isEqualTo("456-XYZ");
 	}
 
 	@Test
@@ -91,11 +98,13 @@ public class CorrelationIdTests {
 		QueueChannel outputChannel = new QueueChannel(1);
 		ServiceActivatingHandler serviceActivator = new ServiceActivatingHandler(new TestBean(), "createMessage");
 		serviceActivator.setOutputChannel(outputChannel);
+		serviceActivator.setBeanFactory(mock(BeanFactory.class));
+		serviceActivator.afterPropertiesSet();
 		EventDrivenConsumer endpoint = new EventDrivenConsumer(inputChannel, serviceActivator);
 		endpoint.start();
-		assertTrue(inputChannel.send(message));
+		assertThat(inputChannel.send(message)).isTrue();
 		Message<?> reply = outputChannel.receive(0);
-		assertEquals("456-XYZ", new IntegrationMessageHeaderAccessor(reply).getCorrelationId());
+		assertThat(new IntegrationMessageHeaderAccessor(reply).getCorrelationId()).isEqualTo("456-XYZ");
 	}
 
 	@Test
@@ -105,29 +114,38 @@ public class CorrelationIdTests {
 		MethodInvokingSplitter splitter = new MethodInvokingSplitter(
 				new TestBean(), TestBean.class.getMethod("split", String.class));
 		splitter.setOutputChannel(testChannel);
+		splitter.setBeanFactory(mock(BeanFactory.class));
+		splitter.afterPropertiesSet();
 		splitter.handleMessage(message);
 		Message<?> reply1 = testChannel.receive(100);
 		Message<?> reply2 = testChannel.receive(100);
-		assertEquals(message.getHeaders().getId(), new IntegrationMessageHeaderAccessor(reply1).getCorrelationId());
-		assertEquals(message.getHeaders().getId(), new IntegrationMessageHeaderAccessor(reply2).getCorrelationId());
+		assertThat(new IntegrationMessageHeaderAccessor(reply1).getCorrelationId())
+				.isEqualTo(message.getHeaders().getId());
+		assertThat(new IntegrationMessageHeaderAccessor(reply2).getCorrelationId())
+				.isEqualTo(message.getHeaders().getId());
 	}
 
 	@Test
 	public void testCorrelationIdWithSplitterWhenValueSetOnIncomingMessage() throws Exception {
-
 		final String correlationIdForTest = "#FOR_TEST#";
 		Message<?> message = MessageBuilder.withPayload("test1,test2").setCorrelationId(correlationIdForTest).build();
 		QueueChannel testChannel = new QueueChannel();
 		MethodInvokingSplitter splitter = new MethodInvokingSplitter(
 				new TestBean(), TestBean.class.getMethod("split", String.class));
 		splitter.setOutputChannel(testChannel);
+		splitter.setBeanFactory(mock(BeanFactory.class));
+		splitter.afterPropertiesSet();
 		splitter.handleMessage(message);
 		Message<?> reply1 = testChannel.receive(100);
 		Message<?> reply2 = testChannel.receive(100);
-		assertEquals(message.getHeaders().getId(), new IntegrationMessageHeaderAccessor(reply1).getCorrelationId());
-		assertEquals(message.getHeaders().getId(), new IntegrationMessageHeaderAccessor(reply2).getCorrelationId());
-		assertTrue("Sequence details missing", reply1.getHeaders().containsKey(IntegrationMessageHeaderAccessor.SEQUENCE_DETAILS));
-		assertTrue("Sequence details missing", reply2.getHeaders().containsKey(IntegrationMessageHeaderAccessor.SEQUENCE_DETAILS));
+		assertThat(new IntegrationMessageHeaderAccessor(reply1).getCorrelationId())
+				.isEqualTo(message.getHeaders().getId());
+		assertThat(new IntegrationMessageHeaderAccessor(reply2).getCorrelationId())
+				.isEqualTo(message.getHeaders().getId());
+		assertThat(reply1.getHeaders().containsKey(IntegrationMessageHeaderAccessor.SEQUENCE_DETAILS))
+				.as("Sequence details missing").isTrue();
+		assertThat(reply2.getHeaders().containsKey(IntegrationMessageHeaderAccessor.SEQUENCE_DETAILS))
+				.as("Sequence details missing").isTrue();
 	}
 
 	@SuppressWarnings("unused")

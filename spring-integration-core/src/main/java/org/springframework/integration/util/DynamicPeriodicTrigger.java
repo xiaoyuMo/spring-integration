@@ -22,13 +22,13 @@ import java.util.concurrent.TimeUnit;
 
 import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.TriggerContext;
-import org.springframework.scheduling.support.PeriodicTrigger;
 import org.springframework.util.Assert;
 
 
 /**
  * This is a dynamically changeable {@link Trigger}. It is based on the
- * {@link PeriodicTrigger} implementations. However, the fields of this dynamic
+ * {@link org.springframework.scheduling.support.PeriodicTrigger}
+ * implementations. However, the fields of this dynamic
  * trigger are not final and the properties can be inspected and set via
  * explicit getters and setters. Changes to the trigger take effect after the
  * next execution.
@@ -217,13 +217,14 @@ public class DynamicPeriodicTrigger implements Trigger {
 	 */
 	@Override
 	public Date nextExecutionTime(TriggerContext triggerContext) {
-		if (triggerContext.lastScheduledExecutionTime() == null) {
+		Date lastScheduled = triggerContext.lastScheduledExecutionTime();
+		if (lastScheduled == null) {
 			return new Date(System.currentTimeMillis() + this.initialDuration.toMillis());
 		}
 		else if (this.fixedRate) {
-			return new Date(triggerContext.lastScheduledExecutionTime().getTime() + this.duration.toMillis());
+			return new Date(lastScheduled.getTime() + this.duration.toMillis());
 		}
-		return new Date(triggerContext.lastCompletionTime().getTime() + this.duration.toMillis());
+		return new Date(triggerContext.lastCompletionTime().getTime() + this.duration.toMillis()); // NOSONAR never null here
 	}
 
 	@Override

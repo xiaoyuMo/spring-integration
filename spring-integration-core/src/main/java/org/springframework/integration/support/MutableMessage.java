@@ -18,20 +18,21 @@ package org.springframework.integration.support;
 
 import java.io.Serializable;
 import java.util.Map;
+import java.util.UUID;
 
-import org.springframework.integration.store.SimpleMessageStore;
 import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.support.GenericMessage;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
 
 /**
  * An implementation of {@link Message} with a generic payload. Unlike
- * {@link GenericMessage}, this message (or its headers) can be modified after creation.
+ * {@link org.springframework.messaging.support.GenericMessage},
+ * this message (or its headers) can be modified after creation.
  * Great care must be taken, when mutating messages, that some other element/thread is not
  * concurrently using the message. Also note that any in-memory stores (such as
- * {@link SimpleMessageStore}) may have a reference to the message and changes will be
+ * {@link org.springframework.integration.store.SimpleMessageStore})
+ * may have a reference to the message and changes will be
  * reflected there too.
  *
  * <p>
@@ -112,7 +113,9 @@ public class MutableMessage<T> implements Message<T>, Serializable {
 		}
 		if (obj != null && obj instanceof MutableMessage<?>) {
 			MutableMessage<?> other = (MutableMessage<?>) obj;
-			return (this.headers.getId().equals(other.headers.getId()) &&
+			UUID thisId = this.headers.getId();
+			UUID otherId = other.headers.getId();
+			return (ObjectUtils.nullSafeEquals(thisId, otherId) &&
 					this.headers.equals(other.headers) && this.payload.equals(other.payload));
 		}
 		return false;

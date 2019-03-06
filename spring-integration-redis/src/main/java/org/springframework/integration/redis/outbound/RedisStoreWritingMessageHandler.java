@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2017 the original author or authors.
+ * Copyright 2007-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import org.springframework.data.redis.core.BoundZSetOperations;
 import org.springframework.data.redis.core.RedisConnectionUtils;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.data.redis.support.collections.RedisCollectionFactoryBean;
 import org.springframework.data.redis.support.collections.RedisCollectionFactoryBean.CollectionType;
@@ -45,22 +44,21 @@ import org.springframework.integration.expression.ExpressionUtils;
 import org.springframework.integration.expression.FunctionExpression;
 import org.springframework.integration.handler.AbstractMessageHandler;
 import org.springframework.integration.redis.support.RedisHeaders;
+import org.springframework.integration.support.utils.IntegrationUtils;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageHandler;
-import org.springframework.messaging.MessageHandlingException;
 import org.springframework.util.Assert;
 import org.springframework.util.NumberUtils;
 
 /**
- * Implementation of {@link MessageHandler} which writes Message data into a Redis store
- * identified by a key {@link String}.
+ * Implementation of {@link org.springframework.messaging.MessageHandler} which writes
+ * Message data into a Redis store identified by a key {@link String}.
  *
  * It supports the collection types identified by {@link CollectionType}.
  *
  * It supports batch updates or single item entry.
  *
- * "Batch updates" means that the payload of the Message may be a Map or Collection.
- * With such a payload, individual items from it are added to the corresponding Redis store.
+ * "Batch updates" means that the payload of the Message may be a Map or Collection. With
+ * such a payload, individual items from it are added to the corresponding Redis store.
  * See {@link #handleMessageInternal(Message)} for more details.
  *
  * You can instead choose to persist such a payload as a single item if the
@@ -119,7 +117,9 @@ public class RedisStoreWritingMessageHandler extends AbstractMessageHandler {
 	 * Constructs an instance using the provided {@link RedisConnectionFactory}.
 	 * It will use either a {@link StringRedisTemplate} if {@link #extractPayloadElements} is
 	 * true (default) or a {@link RedisTemplate} with {@link StringRedisSerializer}s for
-	 * keys and hash keys and {@link JdkSerializationRedisSerializer}s for values and
+	 * keys and hash keys and
+	 * {@link org.springframework.data.redis.serializer.JdkSerializationRedisSerializer}s
+	 * for values and
 	 * hash values, when it is false.
 	 * @param connectionFactory The connection factory.
 	 * @see #setExtractPayloadElements(boolean)
@@ -240,7 +240,7 @@ public class RedisStoreWritingMessageHandler extends AbstractMessageHandler {
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		this.evaluationContext =
 				ExpressionUtils.createStandardEvaluationContext(this.getBeanFactory());
 		Assert.state(!this.mapKeyExpressionExplicitlySet ||
@@ -289,11 +289,11 @@ public class RedisStoreWritingMessageHandler extends AbstractMessageHandler {
 	 */
 	@SuppressWarnings("unchecked")
 	@Override
-	protected void handleMessageInternal(Message<?> message) throws Exception {
+	protected void handleMessageInternal(Message<?> message) {
 		String key = this.keyExpression.getValue(this.evaluationContext, message, String.class);
 		Assert.hasText(key, () -> "Failed to determine a key for the Redis store based on the message: " + message);
 
-		RedisStore store = this.createStoreView(key);
+		RedisStore store = createStoreView(key);
 
 		Assert.state(this.initialized,
 				"handler not initialized - afterPropertiesSet() must be called before the first use");
@@ -314,8 +314,9 @@ public class RedisStoreWritingMessageHandler extends AbstractMessageHandler {
 				writeToProperties((RedisProperties) store, message);
 			}
 		}
-		catch (Exception e) {
-			throw new MessageHandlingException(message, "Failed to store Message data in Redis collection", e);
+		catch (Exception ex) {
+			throw IntegrationUtils.wrapInHandlingExceptionIfNecessary(message,
+					() -> "Failed to store Message data in Redis collection", ex);
 		}
 	}
 
@@ -416,15 +417,17 @@ public class RedisStoreWritingMessageHandler extends AbstractMessageHandler {
 	}
 
 	private void processInPipeline(PipelineCallback callback) {
+		RedisConnectionFactory connectionFactoryForPipeline = this.redisTemplate.getConnectionFactory();
+		Assert.state(connectionFactoryForPipeline != null, "RedisTemplate returned no connection factory");
 		RedisConnection connection =
-				RedisConnectionUtils.bindConnection(this.redisTemplate.getConnectionFactory());
+				RedisConnectionUtils.bindConnection(connectionFactoryForPipeline);
 		try {
 			connection.openPipeline();
 			callback.process();
 		}
 		finally {
 			connection.closePipeline();
-			RedisConnectionUtils.unbindConnection(this.redisTemplate.getConnectionFactory());
+			RedisConnectionUtils.unbindConnection(connectionFactoryForPipeline);
 		}
 	}
 
@@ -486,7 +489,8 @@ public class RedisStoreWritingMessageHandler extends AbstractMessageHandler {
 			return 1d;
 		}
 		else {
-			Assert.isInstanceOf(Number.class, scoreHeader, "Header " + RedisHeaders.ZSET_SCORE + " must be a Number");
+			Assert.isInstanceOf(Number.class, scoreHeader,
+					() -> "Header " + RedisHeaders.ZSET_SCORE + " must be a Number");
 			Number score = (Number) scoreHeader;
 			return Double.valueOf(score.toString());
 		}

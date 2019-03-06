@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.integration.core.MessagingTemplate;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.support.context.NamedComponent;
-import org.springframework.messaging.MessageChannel;
+import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
@@ -125,7 +125,8 @@ public final class StandardIntegrationFlowContext implements IntegrationFlowCont
 	}
 
 	@SuppressWarnings("unchecked")
-	private Object registerBean(Object bean, String beanName, String parentName) {
+	private Object registerBean(Object bean, @Nullable String beanNameArg, String parentName) {
+		String beanName = beanNameArg;
 		if (beanName == null) {
 			beanName = generateBeanName(bean, parentName);
 		}
@@ -192,7 +193,8 @@ public final class StandardIntegrationFlowContext implements IntegrationFlowCont
 	 * Obtain a {@link MessagingTemplate} with its default destination set to the input channel
 	 * of the {@link IntegrationFlow} for provided {@code flowId}.
 	 * <p> Any {@link IntegrationFlow} bean (not only manually registered) can be used for this method.
-	 * <p> If {@link IntegrationFlow} doesn't start with the {@link MessageChannel}, the
+	 * <p> If {@link IntegrationFlow} doesn't start with the
+	 * {@link org.springframework.messaging.MessageChannel}, the
 	 * {@link IllegalStateException} is thrown.
 	 * @param flowId the bean name to obtain the input channel from
 	 * @return the {@link MessagingTemplate} instance
@@ -214,9 +216,13 @@ public final class StandardIntegrationFlowContext implements IntegrationFlowCont
 	}
 
 	private String generateBeanName(Object instance, String parentName) {
-		if (instance instanceof NamedComponent && ((NamedComponent) instance).getComponentName() != null) {
-			return ((NamedComponent) instance).getComponentName();
+		if (instance instanceof NamedComponent) {
+			String beanName = ((NamedComponent) instance).getBeanName();
+			if (beanName != null) {
+				return beanName;
+			}
 		}
+
 		String generatedBeanName = (parentName != null ? parentName : "") + instance.getClass().getName();
 		String id = generatedBeanName;
 		int counter = -1;

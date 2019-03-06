@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,7 @@
 
 package org.springframework.integration.jms.dsl;
 
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import java.util.concurrent.CountDownLatch;
@@ -33,7 +29,6 @@ import javax.jms.ConnectionFactory;
 
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.apache.logging.log4j.Level;
-import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -48,7 +43,6 @@ import org.springframework.integration.annotation.InboundChannelAdapter;
 import org.springframework.integration.annotation.IntegrationComponentScan;
 import org.springframework.integration.annotation.MessagingGateway;
 import org.springframework.integration.annotation.Poller;
-import org.springframework.integration.channel.ChannelInterceptorAware;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.channel.FixedSubscriberChannel;
 import org.springframework.integration.channel.QueueChannel;
@@ -79,6 +73,7 @@ import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.PollableChannel;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.InterceptableChannel;
 import org.springframework.stereotype.Component;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -157,17 +152,17 @@ public class JmsTests extends ActiveMQMultiContextTests {
 	@Test
 	public void testPollingFlow() {
 		this.controlBus.send("@'jmsTests.ContextConfiguration.integerMessageSource.inboundChannelAdapter'.start()");
-		assertThat(this.beanFactory.getBean("integerChannel"), instanceOf(FixedSubscriberChannel.class));
+		assertThat(this.beanFactory.getBean("integerChannel")).isInstanceOf(FixedSubscriberChannel.class);
 		for (int i = 0; i < 5; i++) {
 			Message<?> message = this.outputChannel.receive(20000);
-			assertNotNull(message);
-			assertEquals("" + i, message.getPayload());
+			assertThat(message).isNotNull();
+			assertThat(message.getPayload()).isEqualTo("" + i);
 		}
 		this.controlBus.send("@'jmsTests.ContextConfiguration.integerMessageSource.inboundChannelAdapter'.stop()");
 
-		assertTrue(((ChannelInterceptorAware) this.outputChannel).getChannelInterceptors()
-				.contains(this.testChannelInterceptor));
-		assertThat(this.testChannelInterceptor.invoked.get(), Matchers.greaterThanOrEqualTo(5));
+		assertThat(((InterceptableChannel) this.outputChannel).getInterceptors())
+				.contains(this.testChannelInterceptor);
+		assertThat(this.testChannelInterceptor.invoked.get()).isGreaterThanOrEqualTo(5);
 
 	}
 
@@ -176,7 +171,7 @@ public class JmsTests extends ActiveMQMultiContextTests {
 		JmsTemplate jmsTemplate =
 				TestUtils.getPropertyValue(this.jmsDestinationPollingSource, "jmsTemplate", JmsTemplate.class);
 
-		assertEquals(1000, jmsTemplate.getReceiveTimeout());
+		assertThat(jmsTemplate.getReceiveTimeout()).isEqualTo(1000);
 
 		this.jmsOutboundInboundChannel.send(MessageBuilder.withPayload("hello THROUGH the JMS")
 				.setHeader(SimpMessageHeaderAccessor.DESTINATION_HEADER, "jmsInbound")
@@ -184,8 +179,10 @@ public class JmsTests extends ActiveMQMultiContextTests {
 
 		Message<?> receive = this.jmsOutboundInboundReplyChannel.receive(10000);
 
-		assertNotNull(receive);
-		assertEquals("HELLO THROUGH THE JMS", receive.getPayload());
+		assertThat(receive)
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo("HELLO THROUGH THE JMS");
 
 		this.jmsOutboundInboundChannel.send(MessageBuilder.withPayload("hello THROUGH the JMS")
 				.setHeader(SimpMessageHeaderAccessor.DESTINATION_HEADER, "jmsMessageDriven")
@@ -193,10 +190,12 @@ public class JmsTests extends ActiveMQMultiContextTests {
 
 		receive = this.jmsOutboundInboundReplyChannel.receive(10000);
 
-		assertNotNull(receive);
-		assertEquals("hello through the jms", receive.getPayload());
+		assertThat(receive)
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo("hello through the jms");
 
-		assertTrue(this.jmsMessageDrivenChannelCalled.get());
+		assertThat(this.jmsMessageDrivenChannelCalled.get()).isTrue();
 
 		this.jmsOutboundInboundChannel.send(MessageBuilder.withPayload("    foo    ")
 				.setHeader(SimpMessageHeaderAccessor.DESTINATION_HEADER, "containerSpecDestination")
@@ -204,16 +203,18 @@ public class JmsTests extends ActiveMQMultiContextTests {
 
 		receive = this.jmsOutboundInboundReplyChannel.receive(10000);
 
-		assertNotNull(receive);
-		assertEquals("foo", receive.getPayload());
+		assertThat(receive)
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo("foo");
 
-		assertNotNull(this.jmsOutboundFlowTemplate);
+		assertThat(this.jmsOutboundFlowTemplate).isNotNull();
 	}
 
 	@Test
 	public void testJmsPipelineFlow() {
-		assertEquals(new Long(10000),
-				TestUtils.getPropertyValue(this.jmsOutboundGatewayHandler, "idleReplyContainerTimeout", Long.class));
+		assertThat(TestUtils.getPropertyValue(this.jmsOutboundGatewayHandler, "idleReplyContainerTimeout", Long.class))
+				.isEqualTo(new Long(10000));
 		PollableChannel replyChannel = new QueueChannel();
 		Message<String> message = MessageBuilder.withPayload("hello through the jms pipeline")
 				.setReplyChannel(replyChannel)
@@ -223,10 +224,12 @@ public class JmsTests extends ActiveMQMultiContextTests {
 
 		Message<?> receive = replyChannel.receive(5000);
 
-		assertNotNull(receive);
-		assertEquals("HELLO THROUGH THE JMS PIPELINE", receive.getPayload());
+		assertThat(receive)
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo("HELLO THROUGH THE JMS PIPELINE");
 
-		assertTrue(this.jmsInboundGatewayChannelCalled.get());
+		assertThat(this.jmsInboundGatewayChannelCalled.get()).isTrue();
 	}
 
 	@Test
@@ -236,8 +239,10 @@ public class JmsTests extends ActiveMQMultiContextTests {
 		template.setDefaultDestinationName("pubsub");
 		template.convertAndSend("foo");
 		Message<?> received = this.jmsPubSubBridgeChannel.receive(5000);
-		assertNotNull(received);
-		assertEquals("foo", received.getPayload());
+		assertThat(received)
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo("foo");
 	}
 
 	@Test
@@ -246,9 +251,9 @@ public class JmsTests extends ActiveMQMultiContextTests {
 				.setHeader(SimpMessageHeaderAccessor.DESTINATION_HEADER, "jmsMessageDrivenRedelivery")
 				.build());
 
-		assertTrue(this.redeliveryLatch.await(10, TimeUnit.SECONDS));
+		assertThat(this.redeliveryLatch.await(10, TimeUnit.SECONDS)).isTrue();
 
-		assertNotNull(this.jmsMessageDrivenRedeliveryFlowContainer);
+		assertThat(this.jmsMessageDrivenRedeliveryFlowContainer).isNotNull();
 		this.jmsMessageDrivenRedeliveryFlowContainer.stop();
 	}
 
@@ -345,10 +350,11 @@ public class JmsTests extends ActiveMQMultiContextTests {
 		@Bean
 		public IntegrationFlow jmsMessageDrivenFlow() {
 			return IntegrationFlows
-					.from(Jms.messageDrivenChannelAdapter(jmsConnectionFactory(), DefaultMessageListenerContainer.class)
+					.from(Jms.messageDrivenChannelAdapter(jmsConnectionFactory(),
+							DefaultMessageListenerContainer.class)
 							.outputChannel(jmsMessageDrivenInputChannel())
 							.destination("jmsMessageDriven")
-					.configureListenerContainer(c -> c.clientId("foo")))
+							.configureListenerContainer(c -> c.clientId("foo")))
 					.<String, String>transform(String::toLowerCase)
 					.channel(jmsOutboundInboundReplyChannel())
 					.get();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,17 +16,11 @@
 
 package org.springframework.integration.json;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.hamcrest.Matchers;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -36,7 +30,6 @@ import org.springframework.expression.Expression;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.integration.channel.QueueChannel;
-import org.springframework.integration.mapping.support.JsonHeaders;
 import org.springframework.integration.support.DefaultMessageBuilderFactory;
 import org.springframework.integration.support.MessageBuilder;
 import org.springframework.integration.support.json.Jackson2JsonObjectMapper;
@@ -74,9 +67,6 @@ public class ObjectToJsonTransformerParserTests {
 	private MessageChannel jsonNodeInput;
 
 	@Autowired
-	private MessageChannel boonJsonNodeInput;
-
-	@Autowired
 	private DefaultMessageBuilderFactory defaultMessageBuilderFactory;
 
 	@Test
@@ -84,15 +74,15 @@ public class ObjectToJsonTransformerParserTests {
 		ObjectToJsonTransformer transformer =
 				TestUtils.getPropertyValue(context.getBean("defaultTransformer"), "handler.transformer",
 						ObjectToJsonTransformer.class);
-		assertEquals("application/json", TestUtils.getPropertyValue(transformer, "contentType"));
+		assertThat(TestUtils.getPropertyValue(transformer, "contentType")).isEqualTo("application/json");
 
-		assertEquals(Jackson2JsonObjectMapper.class,
-				TestUtils.getPropertyValue(transformer, "jsonObjectMapper").getClass());
+		assertThat(TestUtils.getPropertyValue(transformer, "jsonObjectMapper").getClass())
+				.isEqualTo(Jackson2JsonObjectMapper.class);
 
 		Message<?> transformed = transformer.transform(MessageBuilder.withPayload("foo").build());
 
 		// spring.integration.readOnly.headers=contentType, so no 'contentType'
-		assertFalse(transformed.getHeaders().containsKey(MessageHeaders.CONTENT_TYPE));
+		assertThat(transformed.getHeaders().containsKey(MessageHeaders.CONTENT_TYPE)).isFalse();
 
 		// Reset readOnlyHeaders to defaults. Therefore the 'contentType' should be presented in subsequent tests
 		this.defaultMessageBuilderFactory.setReadOnlyHeaders();
@@ -100,20 +90,20 @@ public class ObjectToJsonTransformerParserTests {
 		transformer =
 				TestUtils.getPropertyValue(context.getBean("emptyContentTypeTransformer"), "handler.transformer",
 						ObjectToJsonTransformer.class);
-		assertEquals("", TestUtils.getPropertyValue(transformer, "contentType"));
+		assertThat(TestUtils.getPropertyValue(transformer, "contentType")).isEqualTo("");
 
 		transformed = transformer.transform(MessageBuilder.withPayload("foo").build());
-		assertFalse(transformed.getHeaders().containsKey(MessageHeaders.CONTENT_TYPE));
+		assertThat(transformed.getHeaders().containsKey(MessageHeaders.CONTENT_TYPE)).isFalse();
 
 		transformed = transformer.transform(MessageBuilder.withPayload("foo").setHeader(MessageHeaders.CONTENT_TYPE,
 				"foo").build());
-		assertNotNull(transformed.getHeaders().get(MessageHeaders.CONTENT_TYPE));
-		assertEquals("foo", transformed.getHeaders().get(MessageHeaders.CONTENT_TYPE));
+		assertThat(transformed.getHeaders().get(MessageHeaders.CONTENT_TYPE)).isNotNull();
+		assertThat(transformed.getHeaders().get(MessageHeaders.CONTENT_TYPE)).isEqualTo("foo");
 
 		transformer =
 				TestUtils.getPropertyValue(context.getBean("overriddenContentTypeTransformer"), "handler.transformer",
 						ObjectToJsonTransformer.class);
-		assertEquals("text/xml", TestUtils.getPropertyValue(transformer, "contentType"));
+		assertThat(TestUtils.getPropertyValue(transformer, "contentType")).isEqualTo("text/xml");
 	}
 
 
@@ -131,19 +121,19 @@ public class ObjectToJsonTransformerParserTests {
 		Message<TestPerson> message = MessageBuilder.withPayload(person).setReplyChannel(replyChannel).build();
 		this.defaultObjectMapperInput.send(message);
 		Message<?> reply = replyChannel.receive(0);
-		assertNotNull(reply);
-		assertNotNull(reply.getPayload());
-		assertEquals(String.class, reply.getPayload().getClass());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isNotNull();
+		assertThat(reply.getPayload().getClass()).isEqualTo(String.class);
 		String resultString = (String) reply.getPayload();
-		assertTrue(resultString.contains("\"firstName\":\"John\""));
-		assertTrue(resultString.contains("\"lastName\":\"Doe\""));
-		assertTrue(resultString.contains("\"age\":42"));
+		assertThat(resultString.contains("\"firstName\":\"John\"")).isTrue();
+		assertThat(resultString.contains("\"lastName\":\"Doe\"")).isTrue();
+		assertThat(resultString.contains("\"age\":42")).isTrue();
 		Pattern addressPattern = Pattern.compile("(\"address\":\\{.*?\\})");
 		Matcher matcher = addressPattern.matcher(resultString);
-		assertTrue(matcher.find());
+		assertThat(matcher.find()).isTrue();
 		String addressResult = matcher.group(1);
-		assertTrue(addressResult.contains("\"number\":123"));
-		assertTrue(addressResult.contains("\"street\":\"Main Street\""));
+		assertThat(addressResult.contains("\"number\":123")).isTrue();
+		assertThat(addressResult.contains("\"street\":\"Main Street\"")).isTrue();
 	}
 
 	@Test
@@ -156,11 +146,11 @@ public class ObjectToJsonTransformerParserTests {
 		Message<TestPerson> message = MessageBuilder.withPayload(person).setReplyChannel(replyChannel).build();
 		this.customJsonObjectMapperInput.send(message);
 		Message<?> reply = replyChannel.receive(0);
-		assertNotNull(reply);
-		assertNotNull(reply.getPayload());
-		assertEquals(String.class, reply.getPayload().getClass());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isNotNull();
+		assertThat(reply.getPayload().getClass()).isEqualTo(String.class);
 		String resultString = (String) reply.getPayload();
-		assertEquals("{" + person.toString() + "}", resultString);
+		assertThat(resultString).isEqualTo("{" + person.toString() + "}");
 	}
 
 	@Test
@@ -173,40 +163,21 @@ public class ObjectToJsonTransformerParserTests {
 		Message<TestPerson> message = MessageBuilder.withPayload(person).setReplyChannel(replyChannel).build();
 		this.jsonNodeInput.send(message);
 		Message<?> reply = replyChannel.receive(0);
-		assertNotNull(reply);
+		assertThat(reply).isNotNull();
 		Object payload = reply.getPayload();
-		assertThat(payload, Matchers.instanceOf(JsonNode.class));
+		assertThat(payload).isInstanceOf(JsonNode.class);
 		StandardEvaluationContext evaluationContext = new StandardEvaluationContext();
 		evaluationContext.addPropertyAccessor(new JsonPropertyAccessor());
 		Expression expression = new SpelExpressionParser()
 				.parseExpression("firstName.toString() == 'John' and age.toString() == '42'");
 
-		assertTrue(expression.getValue(evaluationContext, payload, Boolean.class));
-	}
-
-	@Test
-	public void testBoonNodeResultType() {
-		TestPerson person = new TestPerson();
-		person.setFirstName("John");
-		person.setLastName("Doe");
-		person.setAge(42);
-		QueueChannel replyChannel = new QueueChannel();
-		Message<TestPerson> message = MessageBuilder.withPayload(person).setReplyChannel(replyChannel).build();
-		this.boonJsonNodeInput.send(message);
-		Message<?> reply = replyChannel.receive(0);
-		assertNotNull(reply);
-		Object payload = reply.getPayload();
-		assertThat(payload, Matchers.instanceOf(Map.class));
-		assertEquals(TestPerson.class, reply.getHeaders().get(JsonHeaders.TYPE_ID));
-
-		Expression expression = new SpelExpressionParser().parseExpression("[firstName] == 'John' and [age] == 42");
-		assertTrue(expression.getValue(new StandardEvaluationContext(), payload, Boolean.class));
+		assertThat(expression.getValue(evaluationContext, payload, Boolean.class)).isTrue();
 	}
 
 	static class CustomJsonObjectMapper extends JsonObjectMapperAdapter<Object, Object> {
 
 		@Override
-		public String toJson(Object value) throws Exception {
+		public String toJson(Object value) {
 			return "{" + value.toString() + "}";
 		}
 

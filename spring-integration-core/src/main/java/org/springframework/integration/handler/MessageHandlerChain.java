@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.springframework.context.Lifecycle;
 import org.springframework.integration.core.MessageProducer;
-import org.springframework.integration.filter.MessageFilter;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
@@ -41,7 +40,8 @@ import org.springframework.util.Assert;
  * It is expected that each handler will produce reply messages and send them to
  * its output channel, although this is not enforced. It is possible to filter
  * messages in the middle of the chain, for example using a
- * {@link MessageFilter}. A {@link MessageHandler} returning null will have the
+ * {@link org.springframework.integration.filter.MessageFilter}.
+ * A {@link MessageHandler} returning null will have the
  * same effect, although this option is less expressive.
  * <p>
  * This component can be used from the namespace to improve the readability of
@@ -91,7 +91,7 @@ public class MessageHandlerChain extends AbstractMessageProducingHandler impleme
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		synchronized (this.initializationMonitor) {
 			if (!this.initialized) {

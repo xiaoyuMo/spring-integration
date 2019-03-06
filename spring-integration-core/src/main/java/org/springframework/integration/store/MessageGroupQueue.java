@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -121,6 +121,42 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 		return getMessages().iterator();
 	}
 
+	/**
+	 * Get the store.
+	 * @return the store.
+	 * @since 5.0.11
+	 */
+	protected BasicMessageGroupStore getMessageGroupStore() {
+		return this.messageGroupStore;
+	}
+
+	/**
+	 * Get the store lock.
+	 * @return the lock.
+	 * @since 5.0.11
+	 */
+	protected Lock getStoreLock() {
+		return this.storeLock;
+	}
+
+	/**
+	 * Get the not full condition.
+	 * @return the condition.
+	 * @since 5.0.11
+	 */
+	protected Condition getMessageStoreNotFull() {
+		return this.messageStoreNotFull;
+	}
+
+	/**
+	 * Get the not empty condition.
+	 * @return the condition.
+	 * @since 5.0.11
+	 */
+	protected Condition getMessageStoreNotEmpty() {
+		return this.messageStoreNotEmpty;
+	}
+
 	@Override
 	public int size() {
 		return this.messageGroupStore.messageGroupSize(this.groupId);
@@ -129,9 +165,9 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 	@Override
 	public Message<?> peek() {
 		Message<?> message = null;
-		final Lock storeLock = this.storeLock;
+		final Lock lock = this.storeLock;
 		try {
-			storeLock.lockInterruptibly();
+			lock.lockInterruptibly();
 			try {
 				Collection<Message<?>> messages = getMessages();
 				if (!messages.isEmpty()) {
@@ -139,7 +175,7 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 				}
 			}
 			finally {
-				storeLock.unlock();
+				lock.unlock();
 			}
 		}
 		catch (InterruptedException e) {
@@ -152,18 +188,18 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 	public Message<?> poll(long timeout, TimeUnit unit) throws InterruptedException {
 		Message<?> message = null;
 		long timeoutInNanos = unit.toNanos(timeout);
-		final Lock storeLock = this.storeLock;
-		storeLock.lockInterruptibly();
+		final Lock lock = this.storeLock;
+		lock.lockInterruptibly();
 
 		try {
-			while (this.size() == 0 && timeoutInNanos > 0) {
+			message = doPoll();
+			while (message == null && timeoutInNanos > 0) {
 				timeoutInNanos = this.messageStoreNotEmpty.awaitNanos(timeoutInNanos);
+				message = doPoll();
 			}
-			message = this.doPoll();
-
 		}
 		finally {
-			storeLock.unlock();
+			lock.unlock();
 		}
 		return message;
 	}
@@ -171,14 +207,14 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 	@Override
 	public Message<?> poll() {
 		Message<?> message = null;
-		final Lock storeLock = this.storeLock;
+		final Lock lock = this.storeLock;
 		try {
-			storeLock.lockInterruptibly();
+			lock.lockInterruptibly();
 			try {
 				message = this.doPoll();
 			}
 			finally {
-				storeLock.unlock();
+				lock.unlock();
 			}
 		}
 		catch (InterruptedException e) {
@@ -196,10 +232,10 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 	public int drainTo(Collection<? super Message<?>> collection, int maxElements) {
 		Assert.notNull(collection, "'collection' must not be null");
 		int originalSize = collection.size();
-		ArrayList<Message<?>> list = new ArrayList<Message<?>>();
-		final Lock storeLock = this.storeLock;
+		ArrayList<Message<?>> list = new ArrayList<>();
+		final Lock lock = this.storeLock;
 		try {
-			storeLock.lockInterruptibly();
+			lock.lockInterruptibly();
 			try {
 				Message<?> message = this.messageGroupStore.pollMessageFromGroup(this.groupId);
 				for (int i = 0; i < maxElements && message != null; i++) {
@@ -209,7 +245,7 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 				this.messageStoreNotFull.signal();
 			}
 			finally {
-				storeLock.unlock();
+				lock.unlock();
 			}
 		}
 		catch (InterruptedException e) {
@@ -223,14 +259,14 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 	@Override
 	public boolean offer(Message<?> message) {
 		boolean offered = true;
-		final Lock storeLock = this.storeLock;
+		final Lock lock = this.storeLock;
 		try {
-			storeLock.lockInterruptibly();
+			lock.lockInterruptibly();
 			try {
 				offered = this.doOffer(message);
 			}
 			finally {
-				storeLock.unlock();
+				lock.unlock();
 			}
 		}
 		catch (InterruptedException e) {
@@ -244,8 +280,8 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 		long timeoutInNanos = unit.toNanos(timeout);
 		boolean offered = false;
 
-		final Lock storeLock = this.storeLock;
-		storeLock.lockInterruptibly();
+		final Lock lock = this.storeLock;
+		lock.lockInterruptibly();
 		try {
 			if (this.capacity != Integer.MAX_VALUE) {
 				while (this.size() == this.capacity && timeoutInNanos > 0) {
@@ -257,15 +293,15 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 			}
 		}
 		finally {
-			storeLock.unlock();
+			lock.unlock();
 		}
 		return offered;
 	}
 
 	@Override
 	public void put(Message<?> message) throws InterruptedException {
-		final Lock storeLock = this.storeLock;
-		storeLock.lockInterruptibly();
+		final Lock lock = this.storeLock;
+		lock.lockInterruptibly();
 		try {
 			if (this.capacity != Integer.MAX_VALUE) {
 				while (this.size() == this.capacity) {
@@ -275,7 +311,7 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 			this.doOffer(message);
 		}
 		finally {
-			storeLock.unlock();
+			lock.unlock();
 		}
 	}
 
@@ -290,31 +326,32 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 	@Override
 	public Message<?> take() throws InterruptedException {
 		Message<?> message = null;
-		final Lock storeLock = this.storeLock;
-		storeLock.lockInterruptibly();
+		final Lock lock = this.storeLock;
+		lock.lockInterruptibly();
 
 		try {
 			while (this.size() == 0) {
 				this.messageStoreNotEmpty.await();
 			}
-			message = this.doPoll();
+			message = doPoll();
 
 		}
 		finally {
-			storeLock.unlock();
+			lock.unlock();
 		}
 		return message;
 	}
 
-	private Collection<Message<?>> getMessages() {
+	protected Collection<Message<?>> getMessages() {
 		return this.messageGroupStore.getMessageGroup(this.groupId).getMessages();
 	}
 
 	/**
 	 * It is assumed that the 'storeLock' is being held by the caller, otherwise
 	 * IllegalMonitorStateException may be thrown
+	 * @return a message // TODO @Nullable
 	 */
-	private Message<?> doPoll() {
+	protected Message<?> doPoll() {
 		Message<?> message = this.messageGroupStore.pollMessageFromGroup(this.groupId);
 		this.messageStoreNotFull.signal();
 		return message;
@@ -323,8 +360,10 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 	/**
 	 * It is assumed that the 'storeLock' is being held by the caller, otherwise
 	 * IllegalMonitorStateException may be thrown
+	 * @param message the message to offer.
+	 * @return true if offered.
 	 */
-	private boolean doOffer(Message<?> message) {
+	protected boolean doOffer(Message<?> message) {
 		boolean offered = false;
 		if (this.capacity == Integer.MAX_VALUE || this.size() < this.capacity) {
 			this.messageGroupStore.addMessageToGroup(this.groupId, message);
@@ -333,4 +372,5 @@ public class MessageGroupQueue extends AbstractQueue<Message<?>> implements Bloc
 		}
 		return offered;
 	}
+
 }

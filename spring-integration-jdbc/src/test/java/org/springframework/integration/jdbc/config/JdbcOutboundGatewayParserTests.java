@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,21 @@
 
 package org.springframework.integration.jdbc.config;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import javax.sql.DataSource;
 
+import org.apache.commons.logging.Log;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Test;
 
 import org.springframework.beans.DirectFieldAccessor;
@@ -73,58 +74,72 @@ public class JdbcOutboundGatewayParserTests {
 	@Test
 	public void testMapPayloadMapReply() {
 		setUp("handlingMapPayloadJdbcOutboundGatewayTest.xml", getClass());
-		assertTrue(this.context.containsBean("jdbcGateway"));
+		assertThat(this.context.containsBean("jdbcGateway")).isTrue();
 		Message<?> message = MessageBuilder.withPayload(Collections.singletonMap("foo", "bar")).build();
 		this.channel.send(message);
 
 		Message<?> reply = this.messagingTemplate.receive();
-		assertNotNull(reply);
+		assertThat(reply).isNotNull();
 		@SuppressWarnings("unchecked")
 		Map<String, ?> payload = (Map<String, ?>) reply.getPayload();
-		assertEquals("bar", payload.get("name"));
+		assertThat(payload.get("name")).isEqualTo("bar");
 
 		Map<String, Object> map = this.jdbcTemplate.queryForMap("SELECT * from FOOS");
-		assertEquals("Wrong id", message.getHeaders().getId().toString(), map.get("ID"));
-		assertEquals("Wrong name", "bar", map.get("name"));
+		assertThat(map.get("ID")).as("Wrong id").isEqualTo(message.getHeaders().getId().toString());
+		assertThat(map.get("name")).as("Wrong name").isEqualTo("bar");
 
 		JdbcOutboundGateway gateway = context.getBean("jdbcGateway.handler", JdbcOutboundGateway.class);
-		assertEquals(23, TestUtils.getPropertyValue(gateway, "order"));
-		Assert.assertTrue(TestUtils.getPropertyValue(gateway, "requiresReply", Boolean.class));
-		assertEquals(1, adviceCalled);
+		assertThat(TestUtils.getPropertyValue(gateway, "order")).isEqualTo(23);
+		assertThat(TestUtils.getPropertyValue(gateway, "requiresReply", Boolean.class)).isTrue();
+		assertThat(adviceCalled).isEqualTo(1);
 	}
 
 	@Test
 	@SuppressWarnings("unchecked")
 	public void testKeyGeneration() {
 		setUp("handlingKeyGenerationJdbcOutboundGatewayTest.xml", getClass());
+
 		Message<?> message = MessageBuilder.withPayload(Collections.singletonMap("foo", "bar")).build();
 
 		this.channel.send(message);
 
 		Message<?> reply = this.messagingTemplate.receive();
-		assertNotNull(reply);
+		assertThat(reply).isNotNull();
 
 		Map<String, ?> payload = (Map<String, ?>) reply.getPayload();
 		Object id = payload.get("ID");
-		assertNotNull(id);
+		assertThat(id).isNotNull();
 
 		Map<String, Object> map = this.jdbcTemplate.queryForMap("SELECT * from BARS");
-		assertEquals("Wrong id", id, map.get("ID"));
-		assertEquals("Wrong name", "bar", map.get("name"));
+		assertThat(map.get("ID")).as("Wrong id").isEqualTo(id);
+		assertThat(map.get("name")).as("Wrong name").isEqualTo("bar");
 
 		this.jdbcTemplate.execute("DELETE FROM BARS");
 
+		Object insertGateway = this.context.getBean("insertGatewayWithSetter.handler");
+		JdbcTemplate handlerJdbcTemplate =
+				TestUtils.getPropertyValue(insertGateway,
+						"handler.jdbcOperations.classicJdbcTemplate", JdbcTemplate.class);
+
+		Log logger = spy(TestUtils.getPropertyValue(handlerJdbcTemplate, "logger", Log.class));
+
+		given(logger.isDebugEnabled()).willReturn(true);
+
+		new DirectFieldAccessor(handlerJdbcTemplate).setPropertyValue("logger", logger);
+
 		MessageChannel setterRequest = this.context.getBean("setterRequest", MessageChannel.class);
-		setterRequest.send(new GenericMessage<String>("bar2"));
+		setterRequest.send(new GenericMessage<>("bar2"));
 		reply = this.messagingTemplate.receive();
-		assertNotNull(reply);
+		assertThat(reply).isNotNull();
 
 		payload = (Map<String, ?>) reply.getPayload();
 		id = payload.get("ID");
-		assertNotNull(id);
+		assertThat(id).isNotNull();
 		map = this.jdbcTemplate.queryForMap("SELECT * from BARS");
-		assertEquals("Wrong id", id, map.get("ID"));
-		assertEquals("Wrong name", "bar2", map.get("name"));
+		assertThat(map.get("ID")).as("Wrong id").isEqualTo(id);
+		assertThat(map.get("name")).as("Wrong name").isEqualTo("bar2");
+
+		verify(logger).debug("Executing prepared SQL statement [insert into bars (status, name) values (0, ?)]");
 	}
 
 	@Test
@@ -135,32 +150,47 @@ public class JdbcOutboundGatewayParserTests {
 		this.channel.send(message);
 
 		Message<?> reply = this.messagingTemplate.receive();
-		assertNotNull(reply);
+		assertThat(reply).isNotNull();
 		@SuppressWarnings("unchecked")
 		Map<String, ?> payload = (Map<String, ?>) reply.getPayload();
-		assertEquals(1, payload.get("updated"));
+		assertThat(payload.get("updated")).isEqualTo(1);
 	}
 
 	@Test
-	public void testWithPoller() throws Exception {
+	public void testWithPoller() {
 		setUp("JdbcOutboundGatewayWithPollerTest-context.xml", this.getClass());
+
+		Object insertGateway = this.context.getBean("jdbcOutboundGateway.handler");
+		JdbcTemplate pollerJdbcTemplate =
+				TestUtils.getPropertyValue(insertGateway,
+						"poller.jdbcOperations.classicJdbcTemplate", JdbcTemplate.class);
+
+		Log logger = spy(TestUtils.getPropertyValue(pollerJdbcTemplate, "logger", Log.class));
+
+		given(logger.isDebugEnabled()).willReturn(true);
+
+		new DirectFieldAccessor(pollerJdbcTemplate).setPropertyValue("logger", logger);
+
+
 		Message<?> message = MessageBuilder.withPayload(Collections.singletonMap("foo", "bar")).build();
 
 		this.channel.send(message);
 
 		Message<?> reply = this.messagingTemplate.receive();
-		assertNotNull(reply);
+		assertThat(reply).isNotNull();
 		@SuppressWarnings("unchecked")
 		Map<String, ?> payload = (Map<String, ?>) reply.getPayload();
-		assertEquals("bar", payload.get("name"));
+		assertThat(payload.get("name")).isEqualTo("bar");
 
 		Map<String, Object> map = this.jdbcTemplate.queryForMap("SELECT * from BAZZ");
-		assertEquals("Wrong id", message.getHeaders().getId().toString(), map.get("ID"));
-		assertEquals("Wrong name", "bar", map.get("name"));
+		assertThat(map.get("ID")).as("Wrong id").isEqualTo(message.getHeaders().getId().toString());
+		assertThat(map.get("name")).as("Wrong name").isEqualTo("bar");
+
+		verify(logger).debug("Executing prepared SQL statement [select * from bazz where id=?]");
 	}
 
 	@Test
-	public void testWithSelectQueryOnly() throws Exception {
+	public void testWithSelectQueryOnly() {
 		setUp("JdbcOutboundGatewayWithSelectTest-context.xml", getClass());
 		Message<?> message = MessageBuilder.withPayload(100).build();
 
@@ -173,9 +203,9 @@ public class JdbcOutboundGatewayParserTests {
 		Integer status = (Integer) reply.getPayload().get("status");
 		String name = (String) reply.getPayload().get("name");
 
-		assertEquals("100", id);
-		assertEquals(Integer.valueOf(3), status);
-		assertEquals("Cartman", name);
+		assertThat(id).isEqualTo("100");
+		assertThat(status).isEqualTo(Integer.valueOf(3));
+		assertThat(name).isEqualTo("Cartman");
 	}
 
 	@Test
@@ -193,8 +223,8 @@ public class JdbcOutboundGatewayParserTests {
 
 		accessor = new DirectFieldAccessor(messagingTemplate);
 
-		Long  sendTimeout = (Long) accessor.getPropertyValue("sendTimeout");
-		assertEquals("Wrong sendTimeout", Long.valueOf(444L),  sendTimeout);
+		Long sendTimeout = (Long) accessor.getPropertyValue("sendTimeout");
+		assertThat(sendTimeout).as("Wrong sendTimeout").isEqualTo(Long.valueOf(444L));
 
 	}
 
@@ -210,7 +240,7 @@ public class JdbcOutboundGatewayParserTests {
 		source = accessor.getPropertyValue("poller"); //JdbcPollingChannelAdapter
 		accessor = new DirectFieldAccessor(source);
 		Integer maxRowsPerPoll = (Integer) accessor.getPropertyValue("maxRows");
-		assertEquals("maxRowsPerPoll should default to 1", Integer.valueOf(1),  maxRowsPerPoll);
+		assertThat(maxRowsPerPoll).as("maxRowsPerPoll should default to 1").isEqualTo(Integer.valueOf(1));
 
 	}
 
@@ -226,10 +256,11 @@ public class JdbcOutboundGatewayParserTests {
 		source = accessor.getPropertyValue("poller"); //JdbcPollingChannelAdapter
 		accessor = new DirectFieldAccessor(source);
 		Integer maxRowsPerPoll = (Integer) accessor.getPropertyValue("maxRows");
-		assertEquals("maxRowsPerPoll should default to 10", Integer.valueOf(10),  maxRowsPerPoll);
+		assertThat(maxRowsPerPoll).as("maxRowsPerPoll should default to 10").isEqualTo(Integer.valueOf(10));
 	}
 
-	@Test //INT-1029
+	@Test
+	@SuppressWarnings("unchecked")
 	public void testOutboundGatewayInsideChain() {
 		setUp("handlingMapPayloadJdbcOutboundGatewayTest.xml", getClass());
 
@@ -239,16 +270,24 @@ public class JdbcOutboundGatewayParserTests {
 
 		MessageChannel channel = this.context.getBean("jdbcOutboundGatewayInsideChain", MessageChannel.class);
 
-		assertFalse(TestUtils.getPropertyValue(jdbcMessageHandler, "requiresReply", Boolean.class));
+		assertThat(TestUtils.getPropertyValue(jdbcMessageHandler, "requiresReply", Boolean.class)).isFalse();
 
 		channel.send(MessageBuilder.withPayload(Collections.singletonMap("foo", "bar")).build());
 
 		PollableChannel outbound = this.context.getBean("replyChannel", PollableChannel.class);
 		Message<?> reply = outbound.receive(10000);
-		assertNotNull(reply);
-		@SuppressWarnings("unchecked")
-		Map<String, ?> payload = (Map<String, ?>) reply.getPayload();
-		assertEquals("bar", payload.get("name"));
+
+
+		assertThat(reply)
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isInstanceOf(List.class)
+				.asList()
+				.hasSize(1)
+				.element(0)
+				.isInstanceOf(Map.class)
+				.satisfies(map -> assertThat((Map<String, String>) map)
+						.containsEntry("name", "bar"));
 	}
 
 

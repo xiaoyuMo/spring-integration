@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import javax.management.MalformedObjectNameException;
 import javax.management.Notification;
 import javax.management.ObjectName;
 
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.InitializingBean;
@@ -35,6 +36,7 @@ import org.springframework.jmx.export.annotation.ManagedResource;
 import org.springframework.jmx.export.notification.NotificationPublisher;
 import org.springframework.jmx.export.notification.NotificationPublisherAware;
 import org.springframework.jmx.support.ObjectNameManager;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.util.Assert;
 
@@ -55,11 +57,11 @@ public class NotificationPublishingMessageHandler extends AbstractMessageHandler
 
 	private final PublisherDelegate delegate = new PublisherDelegate();
 
-	private volatile OutboundMessageMapper<Notification> notificationMapper;
-
 	private final ObjectName objectName;
 
-	private volatile String defaultNotificationType;
+	private String defaultNotificationType;
+
+	private OutboundMessageMapper<Notification> notificationMapper;
 
 
 	public NotificationPublishingMessageHandler(ObjectName objectName) {
@@ -85,7 +87,7 @@ public class NotificationPublishingMessageHandler extends AbstractMessageHandler
 	 * will be passed as the 'userData' of the Notification.
 	 * @param notificationMapper The notification mapper.
 	 */
-	public void setNotificationMapper(OutboundMessageMapper<Notification> notificationMapper) {
+	public void setNotificationMapper(@Nullable OutboundMessageMapper<Notification> notificationMapper) {
 		this.notificationMapper = notificationMapper;
 	}
 
@@ -106,11 +108,13 @@ public class NotificationPublishingMessageHandler extends AbstractMessageHandler
 	}
 
 	@Override
-	public final void onInit() throws Exception {
-		Assert.isTrue(this.getBeanFactory() instanceof ListableBeanFactory, "A ListableBeanFactory is required.");
-		Map<String, MBeanExporter> exporters = BeanFactoryUtils.beansOfTypeIncludingAncestors(
-				(ListableBeanFactory) this.getBeanFactory(), MBeanExporter.class);
-		Assert.isTrue(exporters.size() > 0, "No MBeanExporter is available in the current context.");
+	public final void onInit() {
+		BeanFactory beanFactory = getBeanFactory();
+		Assert.isTrue(beanFactory instanceof ListableBeanFactory, "A ListableBeanFactory is required.");
+		Map<String, MBeanExporter> exporters =
+				BeanFactoryUtils.beansOfTypeIncludingAncestors((ListableBeanFactory) beanFactory,
+						MBeanExporter.class);
+		Assert.state(exporters.size() > 0, "No MBeanExporter is available in the current context.");
 		MBeanExporter exporter = null;
 		for (MBeanExporter exp : exporters.values()) {
 			exporter = exp;
@@ -121,14 +125,16 @@ public class NotificationPublishingMessageHandler extends AbstractMessageHandler
 		if (this.notificationMapper == null) {
 			this.notificationMapper = new DefaultNotificationMapper(this.objectName, this.defaultNotificationType);
 		}
-		exporter.registerManagedResource(this.delegate, this.objectName);
-		if (this.logger.isInfoEnabled()) {
-			this.logger.info("Registered JMX notification publisher as MBean with ObjectName: " + this.objectName);
+		if (exporter != null) {
+			exporter.registerManagedResource(this.delegate, this.objectName);
+			if (this.logger.isInfoEnabled()) {
+				this.logger.info("Registered JMX notification publisher as MBean with ObjectName: " + this.objectName);
+			}
 		}
 	}
 
 	@Override
-	protected void handleMessageInternal(Message<?> message) throws Exception {
+	protected void handleMessageInternal(Message<?> message) throws Exception { // NOSONAR
 		this.delegate.publish(this.notificationMapper.fromMessage(message));
 	}
 
@@ -141,7 +147,7 @@ public class NotificationPublishingMessageHandler extends AbstractMessageHandler
 	@IntegrationManagedResource
 	public static class PublisherDelegate implements NotificationPublisherAware {
 
-		private volatile NotificationPublisher notificationPublisher;
+		private NotificationPublisher notificationPublisher;
 
 		@Override
 		public void setNotificationPublisher(NotificationPublisher notificationPublisher) {

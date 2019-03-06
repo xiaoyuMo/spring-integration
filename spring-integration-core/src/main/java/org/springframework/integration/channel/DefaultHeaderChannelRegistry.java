@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,16 +27,16 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import org.springframework.context.Lifecycle;
 import org.springframework.integration.context.IntegrationObjectSupport;
-import org.springframework.integration.support.channel.BeanFactoryChannelResolver;
 import org.springframework.integration.support.channel.HeaderChannelRegistry;
 import org.springframework.lang.Nullable;
 import org.springframework.messaging.MessageChannel;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.util.Assert;
 
 /**
  * Converts a channel to a name, retaining a reference to the channel keyed by the name.
- * Allows a downstream {@link BeanFactoryChannelResolver} to find the channel by name
+ * Allows a downstream
+ * {@link org.springframework.integration.support.channel.BeanFactoryChannelResolver}
+ * to find the channel by name
  * in the event that the flow serialized the message at some point.
  * Channels are expired after a configurable delay (60 seconds by default).
  * The actual average expiry time will be 1.5x the delay.
@@ -52,11 +52,11 @@ public class DefaultHeaderChannelRegistry extends IntegrationObjectSupport
 
 	private static final int DEFAULT_REAPER_DELAY = 60000;
 
-	protected static final AtomicLong id = new AtomicLong();
+	protected static final AtomicLong id = new AtomicLong(); // NOSONAR
 
-	protected final Map<String, MessageChannelWrapper> channels = new ConcurrentHashMap<>();
+	protected final Map<String, MessageChannelWrapper> channels = new ConcurrentHashMap<>(); // NOSONAR
 
-	protected final String uuid = UUID.randomUUID().toString() + ":";
+	protected final String uuid = UUID.randomUUID().toString() + ":"; // NOSONAR
 
 	private boolean removeOnGet;
 
@@ -108,17 +108,12 @@ public class DefaultHeaderChannelRegistry extends IntegrationObjectSupport
 	}
 
 	@Override
-	public void setTaskScheduler(TaskScheduler taskScheduler) {
-		super.setTaskScheduler(taskScheduler);
-	}
-
-	@Override
 	public final int size() {
 		return this.channels.size();
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		Assert.notNull(getTaskScheduler(), "a task scheduler is required");
 	}
@@ -156,16 +151,18 @@ public class DefaultHeaderChannelRegistry extends IntegrationObjectSupport
 	}
 
 	@Override
+	@Nullable
 	public Object channelToChannelName(@Nullable Object channel) {
 		return channelToChannelName(channel, this.reaperDelay);
 	}
 
 	@Override
+	@Nullable
 	public Object channelToChannelName(@Nullable Object channel, long timeToLive) {
 		if (!this.running && !this.explicitlyStopped && this.getTaskScheduler() != null) {
 			start();
 		}
-		if (channel != null && channel instanceof MessageChannel) {
+		if (channel instanceof MessageChannel) {
 			String name = this.uuid + id.incrementAndGet();
 			this.channels.put(name, new MessageChannelWrapper((MessageChannel) channel,
 					System.currentTimeMillis() + timeToLive));
@@ -180,6 +177,7 @@ public class DefaultHeaderChannelRegistry extends IntegrationObjectSupport
 	}
 
 	@Override
+	@Nullable
 	public MessageChannel channelNameToChannel(@Nullable String name) {
 		if (name != null) {
 			MessageChannelWrapper messageChannelWrapper;

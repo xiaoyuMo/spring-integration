@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 the original author or authors.
+ * Copyright 2015-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package org.springframework.integration.stomp.inbound;
 
 import java.lang.reflect.Type;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -33,12 +34,13 @@ import org.springframework.integration.stomp.StompSessionManager;
 import org.springframework.integration.stomp.event.StompReceiptEvent;
 import org.springframework.integration.stomp.support.StompHeaderMapper;
 import org.springframework.integration.support.management.IntegrationManagedResource;
+import org.springframework.integration.support.utils.IntegrationUtils;
 import org.springframework.jmx.export.annotation.ManagedAttribute;
 import org.springframework.jmx.export.annotation.ManagedOperation;
 import org.springframework.jmx.export.annotation.ManagedResource;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
-import org.springframework.messaging.MessageHandlingException;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -60,6 +62,8 @@ import org.springframework.util.Assert;
  * if provided {@link StompSessionManager} supports {@code autoReceiptEnabled}.
  *
  * @author Artem Bilan
+ * @author Gary Russell
+ *
  * @since 4.2
  */
 @ManagedResource
@@ -68,24 +72,21 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 
 	private final StompSessionHandler stompSessionHandler = new IntegrationInboundStompSessionHandler();
 
-	private final Set<String> destinations = new LinkedHashSet<String>();
+	private final Set<String> destinations = new LinkedHashSet<>();
 
 	private final StompSessionManager stompSessionManager;
 
-	private final Map<String, StompSession.Subscription> subscriptions =
-			new HashMap<String, StompSession.Subscription>();
+	private final Map<String, StompSession.Subscription> subscriptions = new HashMap<>();
 
 	private final Lock destinationLock = new ReentrantLock();
 
 	private ApplicationEventPublisher applicationEventPublisher;
 
+	private Class<?> payloadType = String.class;
+
+	private HeaderMapper<StompHeaders> headerMapper = new StompHeaderMapper();
+
 	private volatile StompSession stompSession;
-
-	private volatile Class<?> payloadType = String.class;
-
-	private volatile HeaderMapper<StompHeaders> headerMapper = new StompHeaderMapper();
-
-	private volatile MessageChannel errorChannel;
 
 	public StompInboundChannelAdapter(StompSessionManager stompSessionManager, String... destinations) {
 		Assert.notNull(stompSessionManager, "'stompSessionManager' is required.");
@@ -103,12 +104,6 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 		this.payloadType = payloadType;
 	}
 
-	@Override
-	public void setErrorChannel(MessageChannel errorChannel) {
-		super.setErrorChannel(errorChannel);
-		this.errorChannel = errorChannel;
-	}
-
 	public void setHeaderMapper(HeaderMapper<StompHeaders> headerMapper) {
 		Assert.notNull(headerMapper, "'headerMapper' must not be null.");
 		this.headerMapper = headerMapper;
@@ -123,7 +118,7 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 	public String[] getDestinations() {
 		this.destinationLock.lock();
 		try {
-			return this.destinations.toArray(new String[this.destinations.size()]);
+			return this.destinations.toArray(new String[0]);
 		}
 		finally {
 			this.destinationLock.unlock();
@@ -139,14 +134,14 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 		Assert.notNull(destination, "'destination' cannot be null");
 		this.destinationLock.lock();
 		try {
-			for (String d : destination) {
-				if (this.destinations.add(d)) {
-					if (this.logger.isDebugEnabled()) {
-						logger.debug("Subscribe to destination '" + d + "'.");
-					}
-					subscribeDestination(d);
-				}
-			}
+			Arrays.stream(destination)
+					.filter(this.destinations::add)
+					.forEach(d -> {
+						if (this.logger.isDebugEnabled()) {
+							logger.debug("Subscribe to destination '" + d + "'.");
+						}
+						subscribeDestination(d);
+					});
 		}
 		finally {
 			this.destinationLock.unlock();
@@ -162,22 +157,22 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 		Assert.notNull(destination, "'destination' cannot be null");
 		this.destinationLock.lock();
 		try {
-			for (String d : destination) {
-				if (this.destinations.remove(d)) {
-					if (this.logger.isDebugEnabled()) {
-						logger.debug("Removed '" + d + "' from subscriptions.");
-					}
-					StompSession.Subscription subscription = this.subscriptions.get(d);
-					if (subscription != null) {
-						subscription.unsubscribe();
-					}
-					else {
+			Arrays.stream(destination)
+					.filter(this.destinations::remove)
+					.forEach(d -> {
 						if (this.logger.isDebugEnabled()) {
-							logger.debug("No subscription for destination '" + d + "'.");
+							logger.debug("Removed '" + d + "' from subscriptions.");
 						}
-					}
-				}
-			}
+						StompSession.Subscription subscription = this.subscriptions.get(d);
+						if (subscription != null) {
+							subscription.unsubscribe();
+						}
+						else {
+							if (this.logger.isDebugEnabled()) {
+								logger.debug("No subscription for destination '" + d + "'.");
+							}
+						}
+					});
 		}
 		finally {
 			this.destinationLock.unlock();
@@ -206,7 +201,7 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 			}
 		}
 		catch (Exception e) {
-			logger.warn("The exception during unsubscription.", e);
+			logger.warn("The exception during unsubscribing.", e);
 		}
 		this.subscriptions.clear();
 	}
@@ -222,15 +217,23 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 						}
 
 						@Override
-						public void handleFrame(StompHeaders headers, Object body) {
+						public void handleFrame(StompHeaders headers, @Nullable Object body) {
 							Message<?> message;
-							if (body instanceof Message) {
+
+							if (body == null) {
+								logger.info("No body in STOMP frame: nothing to produce.");
+								return;
+							}
+							else if (body instanceof Message) {
 								message = (Message<?>) body;
 							}
 							else {
-								message = getMessageBuilderFactory().withPayload(body)
-										.copyHeaders(StompInboundChannelAdapter.this.headerMapper.toHeaders(headers))
-										.build();
+								message =
+										getMessageBuilderFactory()
+												.withPayload(body)
+												.copyHeaders(
+														StompInboundChannelAdapter.this.headerMapper.toHeaders(headers))
+												.build();
 							}
 							sendMessage(message);
 						}
@@ -238,19 +241,19 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 					});
 
 			if (this.stompSessionManager.isAutoReceiptEnabled()) {
-				final ApplicationEventPublisher applicationEventPublisher = this.applicationEventPublisher;
-				if (applicationEventPublisher != null) {
+				final ApplicationEventPublisher eventPublisher = this.applicationEventPublisher;
+				if (eventPublisher != null) {
 					subscription.addReceiptTask(() -> {
 						StompReceiptEvent event = new StompReceiptEvent(StompInboundChannelAdapter.this,
 								destination, subscription.getReceiptId(), StompCommand.SUBSCRIBE, false);
-						applicationEventPublisher.publishEvent(event);
+						eventPublisher.publishEvent(event);
 					});
 				}
 				subscription.addReceiptLostTask(() -> {
-					if (applicationEventPublisher != null) {
+					if (eventPublisher != null) {
 						StompReceiptEvent event = new StompReceiptEvent(StompInboundChannelAdapter.this,
 								destination, subscription.getReceiptId(), StompCommand.SUBSCRIBE, true);
-						applicationEventPublisher.publishEvent(event);
+						eventPublisher.publishEvent(event);
 					}
 					else {
 						logger.error("The receipt [" + subscription.getReceiptId() + "] is lost for [" +
@@ -260,7 +263,7 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 			}
 			this.subscriptions.put(destination, subscription);
 		}
-		else {
+		else if (logger.isWarnEnabled()) {
 			logger.warn("The StompInboundChannelAdapter [" + getComponentName() +
 					"] ins't connected to StompSession. Check the state of [" + this.stompSessionManager + "]");
 		}
@@ -271,24 +274,32 @@ public class StompInboundChannelAdapter extends MessageProducerSupport implement
 		@Override
 		public void afterConnected(StompSession session, StompHeaders connectedHeaders) {
 			StompInboundChannelAdapter.this.stompSession = session;
-			for (String destination : StompInboundChannelAdapter.this.destinations) {
-				subscribeDestination(destination);
-			}
+			StompInboundChannelAdapter.this.destinations.forEach(StompInboundChannelAdapter.this::subscribeDestination);
 		}
 
 		@Override
 		public void handleException(StompSession session, StompCommand command, StompHeaders headers, byte[] payload,
 				Throwable exception) {
-			if (StompInboundChannelAdapter.this.errorChannel != null) {
+
+			String exceptionMessage = "STOMP Frame handling error.";
+
+			MessageChannel errorChannel = getErrorChannel();
+
+			if (errorChannel != null) {
 				StompHeaderAccessor headerAccessor = StompHeaderAccessor.create(command);
 				headerAccessor.copyHeaders(StompInboundChannelAdapter.this.headerMapper.toHeaders(headers));
-				Message<byte[]> failedMessage = MessageBuilder.createMessage(payload,
-						headerAccessor.getMessageHeaders());
-				getMessagingTemplate().send(StompInboundChannelAdapter.this.errorChannel,
-						new ErrorMessage(new MessageHandlingException(failedMessage, exception)));
+				Message<byte[]> failedMessage =
+						MessageBuilder.createMessage(payload, headerAccessor.getMessageHeaders());
+
+				Exception ex =
+						IntegrationUtils.wrapInHandlingExceptionIfNecessary(failedMessage,
+								() -> exceptionMessage, exception);
+
+				getMessagingTemplate()
+						.send(errorChannel, new ErrorMessage(ex));
 			}
 			else {
-				logger.error("STOMP Frame handling error.", exception);
+				logger.error(exceptionMessage, exception);
 			}
 		}
 

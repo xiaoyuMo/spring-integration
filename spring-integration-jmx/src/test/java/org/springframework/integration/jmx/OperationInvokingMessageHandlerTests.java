@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,7 @@
 
 package org.springframework.integration.jmx;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import java.util.Arrays;
@@ -88,8 +87,7 @@ public class OperationInvokingMessageHandlerTests {
 	@Test
 	public void invocationWithMapPayload() {
 		QueueChannel outputChannel = new QueueChannel();
-		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler();
-		handler.setServer(server);
+		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler(server);
 		handler.setObjectName(this.objectName);
 		handler.setOutputChannel(outputChannel);
 		handler.setOperationName("x");
@@ -101,15 +99,14 @@ public class OperationInvokingMessageHandlerTests {
 		Message<?> message = MessageBuilder.withPayload(params).build();
 		handler.handleMessage(message);
 		Message<?> reply = outputChannel.receive(0);
-		assertNotNull(reply);
-		assertEquals("foobar", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("foobar");
 	}
 
 	@Test
 	public void invocationWithPayloadNoReturnValue() {
 		QueueChannel outputChannel = new QueueChannel();
-		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler();
-		handler.setServer(server);
+		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler(server);
 		handler.setObjectName(this.objectName);
 		handler.setOutputChannel(outputChannel);
 		handler.setOperationName("y");
@@ -122,8 +119,7 @@ public class OperationInvokingMessageHandlerTests {
 	@Test(expected = MessagingException.class)
 	public void invocationWithMapPayloadNotEnoughParameters() {
 		QueueChannel outputChannel = new QueueChannel();
-		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler();
-		handler.setServer(server);
+		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler(server);
 		handler.setObjectName(this.objectName);
 		handler.setOutputChannel(outputChannel);
 		handler.setOperationName("x");
@@ -134,15 +130,14 @@ public class OperationInvokingMessageHandlerTests {
 		Message<?> message = MessageBuilder.withPayload(params).build();
 		handler.handleMessage(message);
 		Message<?> reply = outputChannel.receive(0);
-		assertNotNull(reply);
-		assertEquals("foobar", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("foobar");
 	}
 
 	@Test
 	public void invocationWithListPayload() {
 		QueueChannel outputChannel = new QueueChannel();
-		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler();
-		handler.setServer(server);
+		OperationInvokingMessageHandler handler = new OperationInvokingMessageHandler(server);
 		handler.setObjectName(this.objectName);
 		handler.setOutputChannel(outputChannel);
 		handler.setOperationName("x");
@@ -152,8 +147,8 @@ public class OperationInvokingMessageHandlerTests {
 		Message<?> message = MessageBuilder.withPayload(params).build();
 		handler.handleMessage(message);
 		Message<?> reply = outputChannel.receive(0);
-		assertNotNull(reply);
-		assertEquals("foo123", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("foo123");
 	}
 
 	public interface TestOpsMBean {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.mail.Authenticator;
 import javax.mail.FetchProfile;
@@ -37,9 +39,6 @@ import javax.mail.Session;
 import javax.mail.Store;
 import javax.mail.URLName;
 import javax.mail.internet.MimeMessage;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.expression.Expression;
@@ -60,6 +59,7 @@ import org.springframework.util.FileCopyUtils;
  * @author Iwein Fuld
  * @author Oleg Zhurakousky
  * @author Gary Russell
+ * @author Artem Bilan
  */
 public abstract class AbstractMailReceiver extends IntegrationObjectSupport implements MailReceiver, DisposableBean {
 
@@ -67,45 +67,45 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	 * Default user flag for marking messages as seen by this receiver:
 	 * {@value #DEFAULT_SI_USER_FLAG}.
 	 */
-	public final static String DEFAULT_SI_USER_FLAG = "spring-integration-mail-adapter";
-
-	protected final Log logger = LogFactory.getLog(getClass());
+	public static final String DEFAULT_SI_USER_FLAG = "spring-integration-mail-adapter";
 
 	private final URLName url;
 
-	private final Object folderMonitor = new Object();
+	private final ReentrantReadWriteLock folderLock = new ReentrantReadWriteLock();
 
-	private volatile String protocol;
+	private final Lock folderReadLock = this.folderLock.readLock();
 
-	private volatile int maxFetchSize = -1;
+	private final Lock folderWriteLock = this.folderLock.writeLock();
 
-	private volatile Session session;
+	private String protocol;
+
+	private int maxFetchSize = -1;
+
+	private Session session;
+
+	private boolean shouldDeleteMessages;
+
+	private int folderOpenMode = Folder.READ_ONLY;
+
+	private Properties javaMailProperties = new Properties();
+
+	private Authenticator javaMailAuthenticator;
+
+	private StandardEvaluationContext evaluationContext;
+
+	private Expression selectorExpression;
+
+	private HeaderMapper<MimeMessage> headerMapper;
+
+	private String userFlag = DEFAULT_SI_USER_FLAG;
+
+	private boolean embeddedPartsAsBytes = true;
+
+	private boolean simpleContent;
 
 	private volatile Store store;
 
 	private volatile Folder folder;
-
-	private volatile boolean shouldDeleteMessages;
-
-	protected volatile int folderOpenMode = Folder.READ_ONLY;
-
-	private volatile Properties javaMailProperties = new Properties();
-
-	private volatile Authenticator javaMailAuthenticator;
-
-	private volatile StandardEvaluationContext evaluationContext;
-
-	private volatile Expression selectorExpression;
-
-	private volatile HeaderMapper<MimeMessage> headerMapper;
-
-	protected volatile boolean initialized;
-
-	private volatile String userFlag = DEFAULT_SI_USER_FLAG;
-
-	private volatile boolean embeddedPartsAsBytes = true;
-
-	private volatile boolean simpleContent;
 
 	public AbstractMailReceiver() {
 		this.url = null;
@@ -140,9 +140,7 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	/**
 	 * Set the {@link Session}. Otherwise, the Session will be created by invocation of
 	 * {@link Session#getInstance(Properties)} or {@link Session#getInstance(Properties, Authenticator)}.
-	 *
 	 * @param session The session.
-	 *
 	 * @see #setJavaMailProperties(Properties)
 	 * @see #setJavaMailAuthenticator(Authenticator)
 	 */
@@ -154,9 +152,7 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	/**
 	 * A new {@link Session} will be created with these properties (and the JavaMailAuthenticator if provided).
 	 * Use either this method or {@link #setSession}, but not both.
-	 *
 	 * @param javaMailProperties The javamail properties.
-	 *
 	 * @see #setJavaMailAuthenticator(Authenticator)
 	 * @see #setSession(Session)
 	 */
@@ -171,9 +167,7 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	/**
 	 * Optional, sets the Authenticator to be used to obtain a session. This will not be used if
 	 * {@link AbstractMailReceiver#setSession} has been used to configure the {@link Session} directly.
-	 *
 	 * @param javaMailAuthenticator The javamail authenticator.
-	 *
 	 * @see #setSession(Session)
 	 */
 	public void setJavaMailAuthenticator(Authenticator javaMailAuthenticator) {
@@ -182,7 +176,6 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 
 	/**
 	 * Specify the maximum number of Messages to fetch per call to {@link #receive()}.
-	 *
 	 * @param maxFetchSize The max fetch size.
 	 */
 	public void setMaxFetchSize(int maxFetchSize) {
@@ -191,15 +184,14 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 
 	/**
 	 * Specify whether mail messages should be deleted after retrieval.
-	 *
 	 * @param shouldDeleteMessages true to delete messages.
 	 */
 	public void setShouldDeleteMessages(boolean shouldDeleteMessages) {
 		this.shouldDeleteMessages = shouldDeleteMessages;
 	}
+
 	/**
 	 * Indicates whether the mail messages should be deleted after being received.
-	 *
 	 * @return true when messages will be deleted.
 	 */
 	protected boolean shouldDeleteMessages() {
@@ -249,13 +241,10 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 
 	/**
 	 * {@link MimeMessage#getContent()} returns just the email body.
-	 *
 	 * <pre class="code">
 	 * foo
 	 * </pre>
-	 *
 	 * Some subclasses, such as {@code IMAPMessage} return some headers with the body.
-	 *
 	 * <pre class="code">
 	 * To: foo@bar
 	 * From: bar@baz
@@ -263,7 +252,6 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	 *
 	 *  foo
 	 * </pre>
-	 *
 	 * Starting with version 5.0, messages emitted by mail receivers will render the
 	 * content in the same way as the {@link MimeMessage} implementation returned by
 	 * javamail. In versions 2.2 through 4.3, the content was always just the body,
@@ -272,7 +260,6 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	 * <p>To revert to the previous behavior, set this flag to true. In addition, even
 	 * if a header mapper is provided, the payload will just be the email body.
 	 * @param simpleContent true to render simple content.
-	 *
 	 * @since 5.0
 	 */
 	public void setSimpleContent(boolean simpleContent) {
@@ -283,15 +270,18 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 		return this.folder;
 	}
 
+	protected int getFolderOpenMode() {
+		return this.folderOpenMode;
+	}
+
 	/**
 	 * Subclasses must implement this method to return new mail messages.
-	 *
 	 * @return An array of messages.
 	 * @throws MessagingException Any MessagingException.
 	 */
 	protected abstract Message[] searchForNewMessages() throws MessagingException;
 
-	private void openSession() throws MessagingException {
+	private void openSession() {
 		if (this.session == null) {
 			if (this.javaMailAuthenticator != null) {
 				this.session = Session.getInstance(this.javaMailProperties, this.javaMailAuthenticator);
@@ -316,7 +306,7 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 		}
 		if (!this.store.isConnected()) {
 			if (this.logger.isDebugEnabled()) {
-				this.logger.debug("connecting to store [" + MailTransportUtils.toPasswordProtectedString(this.url) + "]");
+				this.logger.debug("connecting to store [" + this.store.getURLName() + "]");
 			}
 			this.store.connect();
 		}
@@ -338,7 +328,7 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 			return;
 		}
 		if (this.logger.isDebugEnabled()) {
-			this.logger.debug("opening folder [" + MailTransportUtils.toPasswordProtectedString(this.url) + "]");
+			this.logger.debug("opening folder [" + this.folder.getURLName() + "]");
 		}
 		this.folder.open(this.folderOpenMode);
 	}
@@ -349,73 +339,94 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 
 	@Override
 	public Object[] receive() throws javax.mail.MessagingException {
-		synchronized (this.folderMonitor) {
+		this.folderReadLock.lock(); // NOSONAR - guarded with the getReadHoldCount()
+		try {
 			try {
-				this.openFolder();
-				if (this.logger.isInfoEnabled()) {
-					this.logger.info("attempting to receive mail from folder [" + this.getFolder().getFullName() + "]");
-				}
-				Message[] messages = searchForNewMessages();
-				if (this.maxFetchSize > 0 && messages.length > this.maxFetchSize) {
-					Message[] reducedMessages = new Message[this.maxFetchSize];
-					System.arraycopy(messages, 0, reducedMessages, 0, this.maxFetchSize);
-					messages = reducedMessages;
-				}
-				if (this.logger.isDebugEnabled()) {
-					this.logger.debug("found " + messages.length + " new messages");
-				}
-				if (messages.length > 0) {
-					fetchMessages(messages);
-				}
-
-				if (this.logger.isDebugEnabled()) {
-					this.logger.debug("Received " + messages.length + " messages");
-				}
-
-				MimeMessage[] filteredMessages = filterMessagesThruSelector(messages);
-
-				postProcessFilteredMessages(filteredMessages);
-
-				if (this.headerMapper != null) {
-					org.springframework.messaging.Message<?>[] converted =
-							new org.springframework.messaging.Message<?>[filteredMessages.length];
-					int n = 0;
-					for (MimeMessage message : filteredMessages) {
-						Map<String, Object> headers = this.headerMapper.toHeaders(message);
-						converted[n++] = getMessageBuilderFactory().withPayload(extractContent(message, headers))
-								.copyHeaders(headers)
-								.build();
+				Folder folderToCheck = getFolder();
+				if (folderToCheck == null || !folderToCheck.isOpen()) {
+					this.folderReadLock.unlock();
+					this.folderWriteLock.lock();
+					try {
+						openFolder();
+						this.folderReadLock.lock();
 					}
-					return converted;
+					finally {
+						this.folderWriteLock.unlock();
+					}
 				}
-				else {
-					return filteredMessages;
-				}
+				return convertMessagesIfNecessary(searchAndFilterMessages());
 			}
 			finally {
 				MailTransportUtils.closeFolder(this.folder, this.shouldDeleteMessages);
 			}
+		}
+		finally {
+			if (this.folderLock.getReadHoldCount() > 0) {
+				this.folderReadLock.unlock();
+			}
+		}
+	}
+
+	private MimeMessage[] searchAndFilterMessages() throws MessagingException {
+		if (this.logger.isInfoEnabled()) {
+			this.logger.info("attempting to receive mail from folder [" + this.folder.getFullName() + "]");
+		}
+		Message[] messages = searchForNewMessages();
+		if (this.maxFetchSize > 0 && messages.length > this.maxFetchSize) {
+			Message[] reducedMessages = new Message[this.maxFetchSize];
+			System.arraycopy(messages, 0, reducedMessages, 0, this.maxFetchSize);
+			messages = reducedMessages;
+		}
+		if (this.logger.isDebugEnabled()) {
+			this.logger.debug("found " + messages.length + " new messages");
+		}
+		if (messages.length > 0) {
+			fetchMessages(messages);
+		}
+
+		if (this.logger.isDebugEnabled()) {
+			this.logger.debug("Received " + messages.length + " messages");
+		}
+
+		MimeMessage[] filteredMessages = filterMessagesThruSelector(messages);
+
+		postProcessFilteredMessages(filteredMessages);
+		return filteredMessages;
+	}
+
+	private Object[] convertMessagesIfNecessary(MimeMessage[] filteredMessages) {
+		if (this.headerMapper != null) {
+			org.springframework.messaging.Message<?>[] converted =
+					new org.springframework.messaging.Message<?>[filteredMessages.length];
+			int n = 0;
+			for (MimeMessage message : filteredMessages) {
+				Map<String, Object> headers = this.headerMapper.toHeaders(message);
+				converted[n++] =
+						getMessageBuilderFactory()
+								.withPayload(extractContent(message, headers))
+								.copyHeaders(headers)
+								.build();
+			}
+			return converted;
+		}
+		else {
+			return filteredMessages;
 		}
 	}
 
 	private Object extractContent(MimeMessage message, Map<String, Object> headers) {
 		Object content;
 		try {
-			MimeMessage theMessage;
+			MimeMessage theMessage = message;
 			if (this.simpleContent) {
 				theMessage = new IntegrationMimeMessage(message);
 			}
-			else {
-				theMessage = message;
-			}
 			content = theMessage.getContent();
 			if (content instanceof String) {
+				headers.put(MessageHeaders.CONTENT_TYPE, "text/plain");
 				String mailContentType = (String) headers.get(MailHeaders.CONTENT_TYPE);
 				if (mailContentType != null && mailContentType.toLowerCase().startsWith("text")) {
 					headers.put(MessageHeaders.CONTENT_TYPE, mailContentType);
-				}
-				else {
-					headers.put(MessageHeaders.CONTENT_TYPE, "text/plain");
 				}
 			}
 			else if (content instanceof InputStream) {
@@ -473,17 +484,15 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 				if (flags != null && flags.contains(Flags.Flag.USER)) {
 					if (this.logger.isDebugEnabled()) {
 						this.logger.debug("USER flags are supported by this mail server. Flagging message with '"
-										+ this.userFlag + "' user flag");
+								+ this.userFlag + "' user flag");
 					}
 					Flags siFlags = new Flags();
 					siFlags.add(this.userFlag);
 					message.setFlags(siFlags, true);
 				}
 				else {
-					if (this.logger.isDebugEnabled()) {
-						this.logger.debug("USER flags are not supported by this mail server. "
-								+ "Flagging message with system flag");
-					}
+					this.logger.debug("USER flags are not supported by this mail server. " +
+							"Flagging message with system flag");
 					message.setFlag(Flags.Flag.FLAGGED, true);
 				}
 			}
@@ -496,17 +505,18 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	 * will be filtered out and remain on the server as never touched.
 	 */
 	private MimeMessage[] filterMessagesThruSelector(Message[] messages) throws MessagingException {
-		List<MimeMessage> filteredMessages = new LinkedList<MimeMessage>();
-		for (int i = 0; i < messages.length; i++) {
-			MimeMessage message = (MimeMessage) messages[i];
+		List<MimeMessage> filteredMessages = new LinkedList<>();
+		for (Message message1 : messages) {
+			MimeMessage message = (MimeMessage) message1;
 			if (this.selectorExpression != null) {
-				if (this.selectorExpression.getValue(this.evaluationContext, message, Boolean.class)) {
+				if (Boolean.TRUE.equals(
+						this.selectorExpression.getValue(this.evaluationContext, message, Boolean.class))) {
 					filteredMessages.add(message);
 				}
 				else {
 					if (this.logger.isDebugEnabled()) {
-						this.logger.debug("Fetched email with subject '" + message.getSubject() + "' will be discarded by the matching filter" +
-										" and will not be flagged as SEEN.");
+						this.logger.debug("Fetched email with subject '" + message.getSubject()
+								+ "' will be discarded by the matching filter and will not be flagged as SEEN.");
 					}
 				}
 			}
@@ -514,14 +524,13 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 				filteredMessages.add(message);
 			}
 		}
-		return filteredMessages.toArray(new MimeMessage[filteredMessages.size()]);
+		return filteredMessages.toArray(new MimeMessage[0]);
 	}
 
 	/**
 	 * Fetches the specified messages from this receiver's folder. Default
 	 * implementation {@link Folder#fetch(Message[], FetchProfile) fetches}
 	 * every {@link javax.mail.FetchProfile.Item}.
-	 *
 	 * @param messages the messages to fetch
 	 * @throws MessagingException in case of JavaMail errors
 	 */
@@ -535,20 +544,18 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 
 	/**
 	 * Deletes the given messages from this receiver's folder.
-	 *
 	 * @param messages the messages to delete
 	 * @throws MessagingException in case of JavaMail errors
 	 */
 	protected void deleteMessages(Message[] messages) throws MessagingException {
-		for (int i = 0; i < messages.length; i++) {
-			messages[i].setFlag(Flags.Flag.DELETED, true);
+		for (Message message : messages) {
+			message.setFlag(Flags.Flag.DELETED, true);
 		}
 	}
 
 	/**
 	 * Optional method allowing you to set additional flags.
 	 * Currently only implemented in IMapMailReceiver.
-	 *
 	 * @param message The message.
 	 * @throws MessagingException A MessagingException.
 	 */
@@ -556,22 +563,24 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	}
 
 	@Override
-	public void destroy() throws Exception {
-		synchronized (this.folderMonitor) {
+	public void destroy() {
+		this.folderWriteLock.lock();
+		try {
 			MailTransportUtils.closeFolder(this.folder, this.shouldDeleteMessages);
 			MailTransportUtils.closeService(this.store);
 			this.folder = null;
 			this.store = null;
-			this.initialized = false;
+		}
+		finally {
+			this.folderWriteLock.unlock();
 		}
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		this.folderOpenMode = Folder.READ_WRITE;
 		this.evaluationContext = ExpressionUtils.createStandardEvaluationContext(getBeanFactory());
-		this.initialized = true;
 	}
 
 	@Override
@@ -587,9 +596,10 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 	 * Since we copy the message to eagerly fetch the message, it has no folder.
 	 * However, we need to make a folder available in case the user wants to
 	 * perform operations on the message in the folder later in the flow.
-	 * @author Gary Russell
-	 * @since 2.2
 	 *
+	 * @author Gary Russell
+	 *
+	 * @since 2.2
 	 */
 	private final class IntegrationMimeMessage extends MimeMessage {
 
@@ -619,7 +629,7 @@ public abstract class AbstractMailReceiver extends IntegrationObjectSupport impl
 		@Override
 		public Folder getFolder() {
 			try {
-				return AbstractMailReceiver.this.obtainFolderInstance();
+				return obtainFolderInstance();
 			}
 			catch (MessagingException e) {
 				throw new org.springframework.messaging.MessagingException("Unable to obtain the mail folder", e);

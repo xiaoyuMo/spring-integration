@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import org.springframework.beans.factory.InitializingBean;
@@ -53,6 +54,8 @@ public class CompositeFileListFilter<F>
 
 	private Consumer<F> discardCallback;
 
+	private boolean allSupportAccept = true;
+
 
 	public CompositeFileListFilter() {
 		this.fileFilters = new LinkedHashSet<>();
@@ -60,6 +63,7 @@ public class CompositeFileListFilter<F>
 
 	public CompositeFileListFilter(Collection<? extends FileListFilter<F>> fileFilters) {
 		this.fileFilters = new LinkedHashSet<>(fileFilters);
+		this.allSupportAccept = fileFilters.stream().allMatch(FileListFilter<F>::supportsSingleFileFiltering);
 	}
 
 
@@ -73,6 +77,7 @@ public class CompositeFileListFilter<F>
 	}
 
 	public CompositeFileListFilter<F> addFilter(FileListFilter<F> filter) {
+		this.allSupportAccept &= filter.supportsSingleFileFiltering();
 		return addFilters(Collections.singletonList(filter));
 	}
 
@@ -81,9 +86,11 @@ public class CompositeFileListFilter<F>
 	 * @return this CompositeFileFilter instance with the added filters
 	 * @see #addFilters(Collection)
 	 */
-	@SuppressWarnings("unchecked")
-	public CompositeFileListFilter<F> addFilters(FileListFilter<F>... filters) {
-		return addFilters(Arrays.asList(filters));
+	@SafeVarargs
+	@SuppressWarnings("varargs")
+	public final CompositeFileListFilter<F> addFilters(FileListFilter<F>... filters) {
+		List<FileListFilter<F>> asList = Arrays.asList(filters);
+		return addFilters(asList);
 	}
 
 	/**
@@ -104,35 +111,49 @@ public class CompositeFileListFilter<F>
 					((InitializingBean) elf).afterPropertiesSet();
 				}
 				catch (Exception e) {
-					throw new RuntimeException(e);
+					throw new IllegalStateException(e);
 				}
 			}
 		}
 		this.fileFilters.addAll(filtersToAdd);
+		this.allSupportAccept &= filtersToAdd.stream().allMatch(FileListFilter<F>::supportsSingleFileFiltering);
 		return this;
 	}
 
 	@Override
-	public void addDiscardCallback(Consumer<F> discardCallback) {
-		this.discardCallback = discardCallback;
+	public void addDiscardCallback(Consumer<F> discardCallbackToSet) {
+		this.discardCallback = discardCallbackToSet;
 		if (this.discardCallback != null) {
 			this.fileFilters
 					.stream()
 					.filter(DiscardAwareFileListFilter.class::isInstance)
 					.map(f -> (DiscardAwareFileListFilter<F>) f)
-					.forEach(f -> f.addDiscardCallback(discardCallback));
+					.forEach(f -> f.addDiscardCallback(discardCallbackToSet));
 		}
 	}
 
 	@Override
 	public List<F> filterFiles(F[] files) {
 		Assert.notNull(files, "'files' should not be null");
-		List<F> results = new ArrayList<F>(Arrays.asList(files));
+		List<F> results = new ArrayList<>(Arrays.asList(files));
 		for (FileListFilter<F> fileFilter : this.fileFilters) {
 			List<F> currentResults = fileFilter.filterFiles(files);
 			results.retainAll(currentResults);
 		}
 		return results;
+	}
+
+	@Override
+	public boolean accept(F file) {
+		AtomicBoolean allAccept = new AtomicBoolean(true);
+		// we can't use stream().allMatch() because we have to call all filters for this filter's contract
+		this.fileFilters.forEach(f -> allAccept.compareAndSet(true, f.accept(file)));
+		return allAccept.get();
+	}
+
+	@Override
+	public boolean supportsSingleFileFiltering() {
+		return this.allSupportAccept;
 	}
 
 	@Override

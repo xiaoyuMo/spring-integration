@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,6 +66,7 @@ import org.springframework.integration.router.AbstractMessageRouter;
 import org.springframework.integration.scheduling.PollerMetadata;
 import org.springframework.integration.support.channel.BeanFactoryChannelResolver;
 import org.springframework.integration.util.MessagingAnnotationUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.PollableChannel;
@@ -97,17 +98,17 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 
 	protected static final String SEND_TIMEOUT_ATTRIBUTE = "sendTimeout";
 
-	protected final Log logger = LogFactory.getLog(this.getClass());
+	protected final Log logger = LogFactory.getLog(this.getClass()); // NOSONAR
 
-	protected final List<String> messageHandlerAttributes = new ArrayList<>();
+	protected final List<String> messageHandlerAttributes = new ArrayList<>(); // NOSONAR
 
-	protected final ConfigurableListableBeanFactory beanFactory;
+	protected final ConfigurableListableBeanFactory beanFactory; // NOSONAR
 
-	protected final ConversionService conversionService;
+	protected final ConversionService conversionService; // NOSONAR
 
-	protected final DestinationResolver<MessageChannel> channelResolver;
+	protected final DestinationResolver<MessageChannel> channelResolver; // NOSONAR
 
-	protected final Class<T> annotationType;
+	protected final Class<T> annotationType; // NOSONAR
 
 	protected final Disposables disposables; // NOSONAR
 
@@ -116,39 +117,32 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 		Assert.notNull(beanFactory, "'beanFactory' must not be null");
 		this.messageHandlerAttributes.add(SEND_TIMEOUT_ATTRIBUTE);
 		this.beanFactory = beanFactory;
-		ConversionService conversionService = this.beanFactory.getConversionService();
-		if (conversionService != null) {
-			this.conversionService = conversionService;
-		}
-		else {
-			this.conversionService = DefaultConversionService.getSharedInstance();
-		}
+		this.conversionService = this.beanFactory.getConversionService() != null
+				? this.beanFactory.getConversionService()
+				: DefaultConversionService.getSharedInstance();
 		this.channelResolver = new BeanFactoryChannelResolver(beanFactory);
 		this.annotationType = (Class<T>) GenericTypeResolver.resolveTypeArgument(this.getClass(),
 				MethodAnnotationPostProcessor.class);
-		Disposables disposables = null;
+		Disposables disposablesBean = null;
 		try {
-			disposables = beanFactory.getBean(Disposables.class);
+			disposablesBean = beanFactory.getBean(Disposables.class);
 		}
 		catch (Exception e) {
 			// NOSONAR - only for test cases
 		}
-		this.disposables = disposables;
+		this.disposables = disposablesBean;
 	}
 
 
 	@Override
 	public Object postProcess(Object bean, String beanName, Method method, List<Annotation> annotations) {
-		if (this.beanAnnotationAware() && AnnotatedElementUtils.isAnnotated(method, Bean.class.getName())) {
+		Object sourceHandler = null;
+		if (beanAnnotationAware() && AnnotatedElementUtils.isAnnotated(method, Bean.class.getName())) {
 			if (!this.beanFactory.containsBeanDefinition(resolveTargetBeanName(method))) {
 				this.logger.debug("Skipping endpoint creation; perhaps due to some '@Conditional' annotation.");
 				return null;
 			}
-		}
-
-		Object sourceHandler = null;
-		if (beanAnnotationAware() && AnnotatedElementUtils.isAnnotated(method, Bean.class.getName())) {
-			if (MessageHandler.class.isAssignableFrom(method.getReturnType())) {
+			else {
 				sourceHandler = resolveTargetBeanFromMethodWithBeanAnnotation(method);
 			}
 		}
@@ -170,12 +164,15 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 		if (handler instanceof AbstractMessageProducingHandler || handler instanceof AbstractMessageRouter) {
 			String sendTimeout = MessagingAnnotationUtils.resolveAttribute(annotations, "sendTimeout", String.class);
 			if (sendTimeout != null) {
-				Long value = Long.valueOf(this.beanFactory.resolveEmbeddedValue(sendTimeout));
-				if (handler instanceof AbstractMessageProducingHandler) {
-					((AbstractMessageProducingHandler) handler).setSendTimeout(value);
-				}
-				else {
-					((AbstractMessageRouter) handler).setSendTimeout(value);
+				String resolvedValue = this.beanFactory.resolveEmbeddedValue(sendTimeout);
+				if (resolvedValue != null) {
+					long value = Long.parseLong(resolvedValue);
+					if (handler instanceof AbstractMessageProducingHandler) {
+						((AbstractMessageProducingHandler) handler).setSendTimeout(value);
+					}
+					else {
+						((AbstractMessageRouter) handler).setSendTimeout(value);
+					}
 				}
 			}
 		}
@@ -195,7 +192,8 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 
 		if (AnnotatedElementUtils.isAnnotated(method, IdempotentReceiver.class.getName())
 				&& !AnnotatedElementUtils.isAnnotated(method, Bean.class.getName())) {
-			String[] interceptors = AnnotationUtils.getAnnotation(method, IdempotentReceiver.class).value();
+			String[] interceptors =
+					AnnotationUtils.getAnnotation(method, IdempotentReceiver.class).value(); // NOSONAR never null
 			for (String interceptor : interceptors) {
 				DefaultBeanFactoryPointcutAdvisor advisor = new DefaultBeanFactoryPointcutAdvisor();
 				advisor.setAdviceBeanName(interceptor);
@@ -284,9 +282,7 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 				else if (adviceChainBean instanceof Collection) {
 					@SuppressWarnings("unchecked")
 					Collection<Advice> adviceChainEntries = (Collection<Advice>) adviceChainBean;
-					for (Advice advice : adviceChainEntries) {
-						adviceChain.add(advice);
-					}
+					adviceChain.addAll(adviceChainEntries);
 				}
 				else {
 					throw new IllegalArgumentException("Invalid advice chain type:" +
@@ -349,7 +345,7 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 	}
 
 	protected void configurePollingEndpoint(AbstractPollingEndpoint pollingEndpoint, List<Annotation> annotations) {
-		PollerMetadata pollerMetadata = null;
+		PollerMetadata pollerMetadata;
 		Poller[] pollers = MessagingAnnotationUtils.resolveAttribute(annotations, "poller", Poller[].class);
 		if (!ObjectUtils.isEmpty(pollers)) {
 			Assert.state(pollers.length == 1,
@@ -469,7 +465,7 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 
 	protected String resolveTargetBeanName(Method method) {
 		String id = method.getName();
-		String[] names = AnnotationUtils.getAnnotation(method, Bean.class).name();
+		String[] names = AnnotationUtils.getAnnotation(method, Bean.class).name(); // NOSONAR never null
 		if (!ObjectUtils.isEmpty(names)) {
 			id = names[0];
 		}
@@ -477,7 +473,7 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 	}
 
 	@SuppressWarnings("unchecked")
-	protected <H> H extractTypeIfPossible(Object targetObject, Class<H> expectedType) {
+	protected <H> H extractTypeIfPossible(@Nullable Object targetObject, Class<H> expectedType) {
 		if (targetObject == null) {
 			return null;
 		}
@@ -486,9 +482,6 @@ public abstract class AbstractMethodAnnotationPostProcessor<T extends Annotation
 		}
 		if (targetObject instanceof Advised) {
 			TargetSource targetSource = ((Advised) targetObject).getTargetSource();
-			if (targetSource == null) {
-				return null;
-			}
 			try {
 				return extractTypeIfPossible(targetSource.getTarget(), expectedType);
 			}

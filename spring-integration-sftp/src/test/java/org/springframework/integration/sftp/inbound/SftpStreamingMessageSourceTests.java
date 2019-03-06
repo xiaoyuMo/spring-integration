@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,13 @@
 
 package org.springframework.integration.sftp.inbound;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.Matchers.anyOf;
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -43,8 +40,10 @@ import org.springframework.integration.endpoint.SourcePollingChannelAdapter;
 import org.springframework.integration.file.FileHeaders;
 import org.springframework.integration.file.filters.AcceptAllFileListFilter;
 import org.springframework.integration.file.remote.session.SessionFactory;
+import org.springframework.integration.metadata.SimpleMetadataStore;
 import org.springframework.integration.scheduling.PollerMetadata;
 import org.springframework.integration.sftp.SftpTestSupport;
+import org.springframework.integration.sftp.filters.SftpPersistentAcceptOnceFileListFilter;
 import org.springframework.integration.sftp.session.SftpFileInfo;
 import org.springframework.integration.sftp.session.SftpRemoteFileTemplate;
 import org.springframework.integration.transformer.StreamTransformer;
@@ -81,40 +80,45 @@ public class SftpStreamingMessageSourceTests extends SftpTestSupport {
 	@Autowired
 	private ApplicationContext context;
 
+	@Autowired
+	private ConcurrentMap<String, String> metadataMap;
+
 	@SuppressWarnings("unchecked")
 	@Test
 	public void testAllContents() {
 		this.adapter.start();
 		Message<byte[]> received = (Message<byte[]>) this.data.receive(10000);
-		assertNotNull(received);
-		assertThat(new String(received.getPayload()), equalTo("source1"));
+		assertThat(received).isNotNull();
+		assertThat(new String(received.getPayload())).isEqualTo("source1");
 		String fileInfo = (String) received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO);
-		assertThat(fileInfo, containsString("remoteDirectory\":\"sftpSource"));
-		assertThat(fileInfo, containsString("permissions\":"));
-		assertThat(fileInfo, containsString("size\":7"));
-		assertThat(fileInfo, containsString("directory\":false"));
-		assertThat(fileInfo, containsString("filename\":\" sftpSource1.txt"));
-		assertThat(fileInfo, containsString("modified\":"));
-		assertThat(fileInfo, containsString("link\":false"));
+		assertThat(fileInfo).contains("remoteDirectory\":\"sftpSource");
+		assertThat(fileInfo).contains("permissions\":");
+		assertThat(fileInfo).contains("size\":7");
+		assertThat(fileInfo).contains("directory\":false");
+		assertThat(fileInfo).contains("filename\":\" sftpSource1.txt");
+		assertThat(fileInfo).contains("modified\":");
+		assertThat(fileInfo).contains("link\":false");
 		received = (Message<byte[]>) this.data.receive(10000);
-		assertNotNull(received);
+		assertThat(received).isNotNull();
 		fileInfo = (String) received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO);
-		assertThat(fileInfo, containsString("remoteDirectory\":\"sftpSource"));
-		assertThat(fileInfo, containsString("permissions\":"));
-		assertThat(fileInfo, containsString("size\":7"));
-		assertThat(fileInfo, containsString("directory\":false"));
-		assertThat(fileInfo, containsString("filename\":\"sftpSource2.txt"));
-		assertThat(fileInfo, containsString("modified\":"));
-		assertThat(fileInfo, containsString("link\":false"));
-		assertThat(new String(received.getPayload()), equalTo("source2"));
+		assertThat(fileInfo).contains("remoteDirectory\":\"sftpSource");
+		assertThat(fileInfo).contains("permissions\":");
+		assertThat(fileInfo).contains("size\":7");
+		assertThat(fileInfo).contains("directory\":false");
+		assertThat(fileInfo).contains("filename\":\"sftpSource2.txt");
+		assertThat(fileInfo).contains("modified\":");
+		assertThat(fileInfo).contains("link\":false");
+		assertThat(new String(received.getPayload())).isEqualTo("source2");
 
 		this.adapter.stop();
 		this.source.setFileInfoJson(false);
 		this.data.purge(null);
+		this.metadataMap.clear();
 		this.adapter.start();
+		assertThat(this.data.receive(10000)).isNotNull();
 		received = (Message<byte[]>) this.data.receive(10000);
-		assertNotNull(received);
-		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO), instanceOf(SftpFileInfo.class));
+		assertThat(received).isNotNull();
+		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO)).isInstanceOf(SftpFileInfo.class);
 		this.adapter.stop();
 	}
 
@@ -123,10 +127,11 @@ public class SftpStreamingMessageSourceTests extends SftpTestSupport {
 		SftpStreamingMessageSource messageSource = buildSource();
 		messageSource.setFilter(new AcceptAllFileListFilter<>());
 		messageSource.afterPropertiesSet();
+		messageSource.start();
 		Message<InputStream> received = messageSource.receive();
-		assertNotNull(received);
-		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE),
-				anyOf(equalTo(" sftpSource1.txt"), equalTo("sftpSource2.txt")));
+		assertThat(received).isNotNull();
+		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE))
+				.isIn(" sftpSource1.txt", "sftpSource2.txt");
 
 		received.getPayload().close();
 	}
@@ -136,10 +141,11 @@ public class SftpStreamingMessageSourceTests extends SftpTestSupport {
 		SftpStreamingMessageSource messageSource = buildSource();
 		messageSource.setFilter(null);
 		messageSource.afterPropertiesSet();
+		messageSource.start();
 		Message<InputStream> received = messageSource.receive();
-		assertNotNull(received);
-		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE),
-				anyOf(equalTo(" sftpSource1.txt"), equalTo("sftpSource2.txt")));
+		assertThat(received).isNotNull();
+		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE))
+				.isIn(" sftpSource1.txt", "sftpSource2.txt");
 
 		received.getPayload().close();
 	}
@@ -149,19 +155,20 @@ public class SftpStreamingMessageSourceTests extends SftpTestSupport {
 		SftpStreamingMessageSource messageSource = buildSource();
 		messageSource.setFilter(Arrays::asList);
 		messageSource.afterPropertiesSet();
+		messageSource.start();
 		Message<InputStream> received = messageSource.receive();
-		assertNotNull(received);
-		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE),
-				anyOf(equalTo(" sftpSource1.txt"), equalTo("sftpSource2.txt")));
+		assertThat(received).isNotNull();
+		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE))
+				.isIn(" sftpSource1.txt", "sftpSource2.txt");
 
 		received.getPayload().close();
 	}
 
 	private SftpStreamingMessageSource buildSource() {
-		SftpStreamingMessageSource messageSource = new SftpStreamingMessageSource(this.config.template(),
-				Comparator.comparing(LsEntry::getFilename));
+		SftpStreamingMessageSource messageSource =
+				new SftpStreamingMessageSource(this.config.template(),
+						Comparator.comparing(LsEntry::getFilename));
 		messageSource.setRemoteDirectory("sftpSource/");
-		messageSource.setMaxFetchSize(1);
 		messageSource.setBeanFactory(this.context);
 		return messageSource;
 	}
@@ -184,11 +191,19 @@ public class SftpStreamingMessageSourceTests extends SftpTestSupport {
 		}
 
 		@Bean
+		public ConcurrentMap<String, String> metadataMap() {
+			return new ConcurrentHashMap<>();
+		}
+
+
+		@Bean
 		@InboundChannelAdapter(channel = "stream", autoStartup = "false")
 		public MessageSource<InputStream> sftpMessageSource() {
 			SftpStreamingMessageSource messageSource = new SftpStreamingMessageSource(template(),
 					Comparator.comparing(LsEntry::getFilename));
-			messageSource.setFilter(new AcceptAllFileListFilter<>());
+			messageSource.setFilter(
+					new SftpPersistentAcceptOnceFileListFilter(
+							new SimpleMetadataStore(metadataMap()), "testStreaming"));
 			messageSource.setRemoteDirectory("sftpSource/");
 			return messageSource;
 		}

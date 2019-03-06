@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import org.springframework.core.ResolvableType;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
@@ -52,7 +53,6 @@ import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.integration.MessageTimeoutException;
 import org.springframework.integration.http.converter.MultipartAwareFormHttpMessageConverter;
 import org.springframework.integration.http.multipart.MultipartHttpInputMessage;
-import org.springframework.integration.mapping.HeaderMapper;
 import org.springframework.integration.support.AbstractIntegrationMessageBuilder;
 import org.springframework.integration.support.json.JacksonPresent;
 import org.springframework.messaging.Message;
@@ -80,8 +80,8 @@ import org.springframework.web.servlet.HandlerMapping;
  * {@link #setMessageConverters(List)}.
  * <p>
  * To customize the mapping of request headers to the MessageHeaders, provide a
- * reference to a {@code HeaderMapper<HttpHeaders>} implementation
- * to the {@link #setHeaderMapper(HeaderMapper)} method.
+ * reference to a {@code org.springframework.integration.mapping.HeaderMapper<HttpHeaders>} implementation
+ * to the {@link #setHeaderMapper(org.springframework.integration.mapping.HeaderMapper)} method.
  * <p>
  * The behavior is "request/reply" by default. Pass {@code false} to the constructor
  * to force send-only as opposed to sendAndReceive. Send-only means that as soon as
@@ -217,17 +217,17 @@ public abstract class HttpRequestHandlingEndpointSupport extends BaseHttpInbound
 	 * was called with true after the converters were set.
 	 */
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		BeanFactory beanFactory = getBeanFactory();
 		if (this.multipartResolver == null && beanFactory != null) {
 			try {
-				MultipartResolver multipartResolver = beanFactory.getBean(
+				MultipartResolver resolver = beanFactory.getBean(
 						DispatcherServlet.MULTIPART_RESOLVER_BEAN_NAME, MultipartResolver.class);
 				if (logger.isDebugEnabled()) {
-					logger.debug("Using MultipartResolver [" + multipartResolver + "]");
+					logger.debug("Using MultipartResolver [" + resolver + "]");
 				}
-				this.multipartResolver = multipartResolver;
+				this.multipartResolver = resolver;
 			}
 			catch (NoSuchBeanDefinitionException e) {
 				if (logger.isDebugEnabled()) {
@@ -339,14 +339,19 @@ public abstract class HttpRequestHandlingEndpointSupport extends BaseHttpInbound
 						.copyHeadersIfAbsent(headers);
 			}
 			else {
+				Assert.state(payload != null, "payload cannot be null");
 				messageBuilder = this.getMessageBuilderFactory().withPayload(payload).copyHeaders(headers);
+			}
+
+			HttpMethod method = httpEntity.getMethod();
+			if (method != null) {
+				messageBuilder.setHeader(org.springframework.integration.http.HttpHeaders.REQUEST_METHOD,
+						method.toString());
 			}
 
 			Message<?> message = messageBuilder
 					.setHeader(org.springframework.integration.http.HttpHeaders.REQUEST_URL,
 							httpEntity.getUrl().toString())
-					.setHeader(org.springframework.integration.http.HttpHeaders.REQUEST_METHOD,
-							httpEntity.getMethod().toString())
 					.setHeader(org.springframework.integration.http.HttpHeaders.USER_PRINCIPAL,
 							servletRequest.getUserPrincipal())
 					.build();
@@ -490,12 +495,18 @@ public abstract class HttpRequestHandlingEndpointSupport extends BaseHttpInbound
 			expectedType = requestPayloadType.resolve();
 		}
 
+		/*
+		 *  TODO: resolve() can return null, which is not valid for canRead().
+		 *  Perhaps we should coerce to String/byte[] instead of attempting
+		 *  to convert. However this might be a breaking change - 5.2?
+		 *  Hence NOSONAR below.
+		 */
 		for (HttpMessageConverter<?> converter : this.messageConverters) {
 			if (converter.canRead(expectedType, contentType)) {
 				return converter.read((Class) expectedType, request);
 			}
 		}
-		throw new MessagingException(
+		throw new MessagingException(// NOSONAR might be null; see comment above.
 				"Could not convert request: no suitable HttpMessageConverter found for expected type ["
 						+ expectedType != null ? expectedType.getName() : "null"
 						+ "] and content type [" + contentType + "]");

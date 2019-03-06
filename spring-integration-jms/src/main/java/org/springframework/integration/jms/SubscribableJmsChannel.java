@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import org.springframework.integration.dispatcher.UnicastingDispatcher;
 import org.springframework.integration.support.MessageBuilderFactory;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.jms.listener.AbstractMessageListenerContainer;
+import org.springframework.jms.support.converter.MessageConverter;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageDeliveryException;
 import org.springframework.messaging.MessageHandler;
@@ -88,7 +89,7 @@ public class SubscribableJmsChannel extends AbstractJmsChannel
 	}
 
 	@Override
-	public void onInit() throws Exception {
+	public void onInit() {
 		if (this.initialized) {
 			return;
 		}
@@ -169,7 +170,7 @@ public class SubscribableJmsChannel extends AbstractJmsChannel
 	}
 
 	@Override
-	public void destroy() throws Exception {
+	public void destroy() {
 		if (this.container != null) {
 			this.container.destroy();
 		}
@@ -206,14 +207,19 @@ public class SubscribableJmsChannel extends AbstractJmsChannel
 		public void onMessage(javax.jms.Message message) {
 			Message<?> messageToSend = null;
 			try {
-				Object converted = this.jmsTemplate.getMessageConverter().fromMessage(message);
+				MessageConverter converter = this.jmsTemplate.getMessageConverter();
+				Object converted = null;
+				if (converter != null) {
+					converted = converter.fromMessage(message);
+				}
 				if (converted != null) {
 					messageToSend = (converted instanceof Message<?>) ? (Message<?>) converted
 							: this.messageBuilderFactory.withPayload(converted).build();
 					this.dispatcher.dispatch(messageToSend);
 				}
 				else if (this.logger.isWarnEnabled()) {
-					this.logger.warn("MessageConverter returned null, no Message to dispatch");
+					this.logger.warn("No converter found, or converter returned null for: " + message
+							+ ", no Message to dispatch");
 				}
 			}
 			catch (MessageDispatchingException e) {

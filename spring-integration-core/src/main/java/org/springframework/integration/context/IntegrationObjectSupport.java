@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,15 @@
 package org.springframework.integration.context;
 
 import java.util.Properties;
+import java.util.UUID;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import org.springframework.aop.TargetSource;
-import org.springframework.aop.framework.Advised;
+import org.springframework.aop.framework.AopProxyUtils;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
-import org.springframework.beans.factory.BeanInitializationException;
 import org.springframework.beans.factory.BeanNameAware;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.ApplicationContext;
@@ -41,10 +40,13 @@ import org.springframework.integration.support.MessageBuilderFactory;
 import org.springframework.integration.support.channel.BeanFactoryChannelResolver;
 import org.springframework.integration.support.context.NamedComponent;
 import org.springframework.integration.support.utils.IntegrationUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.core.DestinationResolver;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.util.AlternativeJdkIdGenerator;
 import org.springframework.util.Assert;
+import org.springframework.util.IdGenerator;
 import org.springframework.util.StringUtils;
 
 /**
@@ -68,10 +70,12 @@ public abstract class IntegrationObjectSupport implements BeanNameAware, NamedCo
 
 	protected static final ExpressionParser EXPRESSION_PARSER = new SpelExpressionParser();
 
+	private static final IdGenerator ID_GENERATOR = new AlternativeJdkIdGenerator();
+
 	/**
 	 * Logger that is available to subclasses
 	 */
-	protected final Log logger = LogFactory.getLog(getClass());
+	protected final Log logger = LogFactory.getLog(getClass()); // NOSONAR protected
 
 	private final ConversionService defaultConversionService = DefaultConversionService.getSharedInstance();
 
@@ -100,6 +104,11 @@ public abstract class IntegrationObjectSupport implements BeanNameAware, NamedCo
 	@Override
 	public final void setBeanName(String beanName) {
 		this.beanName = beanName;
+	}
+
+	@Override
+	public String getBeanName() {
+		return this.beanName;
 	}
 
 	/**
@@ -166,32 +175,22 @@ public abstract class IntegrationObjectSupport implements BeanNameAware, NamedCo
 	@Override
 	public final void afterPropertiesSet() {
 		this.integrationProperties = IntegrationContextUtils.getIntegrationProperties(this.beanFactory);
-		try {
-			if (this.messageBuilderFactory == null) {
-				if (this.beanFactory != null) {
-					this.messageBuilderFactory = IntegrationUtils.getMessageBuilderFactory(this.beanFactory);
-				}
-				else {
-					this.messageBuilderFactory = new DefaultMessageBuilderFactory();
-				}
+		if (this.messageBuilderFactory == null) {
+			if (this.beanFactory != null) {
+				this.messageBuilderFactory = IntegrationUtils.getMessageBuilderFactory(this.beanFactory);
 			}
-			this.onInit();
-		}
-		catch (Exception e) {
-			if (e instanceof RuntimeException) {
-				throw (RuntimeException) e;
+			else {
+				this.messageBuilderFactory = new DefaultMessageBuilderFactory();
 			}
-			throw new BeanInitializationException("failed to initialize", e);
 		}
-
+		onInit();
 		this.initialized = true;
 	}
 
 	/**
 	 * Subclasses may implement this for initialization logic.
-	 * @throws Exception Any exception.
 	 */
-	protected void onInit() throws Exception {
+	protected void onInit() {
 	}
 
 	/**
@@ -204,6 +203,20 @@ public abstract class IntegrationObjectSupport implements BeanNameAware, NamedCo
 
 	protected BeanFactory getBeanFactory() {
 		return this.beanFactory;
+	}
+
+	/**
+	 * Configure a {@link TaskScheduler} for those components which logic relies
+	 * on the scheduled tasks.
+	 * If not provided, falls back to the global {@code taskScheduler} bean
+	 * in the application context, provided by the Spring Integration infrastructure.
+	 * @param taskScheduler the {@link TaskScheduler} to use.
+	 * @since 5.1.3
+	 * @see #getTaskScheduler()
+	 */
+	public void setTaskScheduler(TaskScheduler taskScheduler) {
+		Assert.notNull(taskScheduler, "taskScheduler must not be null");
+		this.taskScheduler = taskScheduler;
 	}
 
 	protected TaskScheduler getTaskScheduler() {
@@ -220,17 +233,12 @@ public abstract class IntegrationObjectSupport implements BeanNameAware, NamedCo
 		return this.channelResolver;
 	}
 
-	protected void setTaskScheduler(TaskScheduler taskScheduler) {
-		Assert.notNull(taskScheduler, "taskScheduler must not be null");
-		this.taskScheduler = taskScheduler;
-	}
-
 	public ConversionService getConversionService() {
 		if (this.conversionService == null && this.beanFactory != null) {
 			this.conversionService = IntegrationUtils.getConversionService(this.beanFactory);
 			if (this.conversionService == null && this.logger.isDebugEnabled()) {
 				this.logger.debug("Unable to attempt conversion of Message payload types. Component '" +
-						this.getComponentName() + "' has no explicit ConversionService reference, " +
+						getComponentName() + "' has no explicit ConversionService reference, " +
 						"and there is no 'integrationConversionService' bean within the context.");
 			}
 		}
@@ -287,32 +295,27 @@ public abstract class IntegrationObjectSupport implements BeanNameAware, NamedCo
 		return this.defaultConversionService.convert(this.integrationProperties.getProperty(key), tClass);
 	}
 
+	@Override
+	public String toString() {
+		return (this.beanName != null) ? this.beanName : super.toString();
+	}
+
 	@SuppressWarnings("unchecked")
-	protected <T> T extractTypeIfPossible(Object targetObject, Class<T> expectedType) {
+	@Nullable
+	public static <T> T extractTypeIfPossible(@Nullable Object targetObject, Class<T> expectedType) {
 		if (targetObject == null) {
 			return null;
 		}
 		if (expectedType.isAssignableFrom(targetObject.getClass())) {
 			return (T) targetObject;
 		}
-		if (targetObject instanceof Advised) {
-			TargetSource targetSource = ((Advised) targetObject).getTargetSource();
-			if (targetSource == null) {
-				return null;
-			}
-			try {
-				return extractTypeIfPossible(targetSource.getTarget(), expectedType);
-			}
-			catch (Exception e) {
-				throw new IllegalStateException(e);
-			}
+		else {
+			return extractTypeIfPossible(AopProxyUtils.getSingletonTarget(targetObject), expectedType);
 		}
-		return null;
 	}
 
-	@Override
-	public String toString() {
-		return (this.beanName != null) ? this.beanName : super.toString();
+	public static UUID generateId() {
+		return ID_GENERATOR.generateId();
 	}
 
 }

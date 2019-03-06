@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,6 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.expression.Expression;
 import org.springframework.integration.file.DefaultFileNameGenerator;
 import org.springframework.integration.file.FileNameGenerator;
-import org.springframework.integration.file.remote.session.CachingSessionFactory;
 import org.springframework.integration.file.remote.session.Session;
 import org.springframework.integration.file.remote.session.SessionFactory;
 import org.springframework.integration.file.support.FileExistsMode;
@@ -56,6 +55,7 @@ import org.springframework.util.StringUtils;
  * @author David Turanski
  * @author Gary Russell
  * @author Artem Bilan
+ * @author Alen Turkovic
  *
  * @since 3.0
  *
@@ -67,7 +67,7 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 	/**
 	 * the {@link SessionFactory} for acquiring remote file Sessions.
 	 */
-	protected final SessionFactory<F> sessionFactory;
+	protected final SessionFactory<F> sessionFactory; // NOSONAR
 
 	/*
 	 * Not static as normal since we want this TL to be scoped within the template instance.
@@ -238,20 +238,19 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 	}
 
 	@Override
-	public void afterPropertiesSet() throws Exception {
-		BeanFactory beanFactory = this.beanFactory;
-		if (beanFactory != null) {
+	public void afterPropertiesSet() {
+		if (this.beanFactory != null) {
 			if (this.directoryExpressionProcessor != null) {
-				this.directoryExpressionProcessor.setBeanFactory(beanFactory);
+				this.directoryExpressionProcessor.setBeanFactory(this.beanFactory);
 			}
 			if (this.temporaryDirectoryExpressionProcessor != null) {
-				this.temporaryDirectoryExpressionProcessor.setBeanFactory(beanFactory);
+				this.temporaryDirectoryExpressionProcessor.setBeanFactory(this.beanFactory);
 			}
 			if (!this.fileNameGeneratorSet && this.fileNameGenerator instanceof BeanFactoryAware) {
-				((BeanFactoryAware) this.fileNameGenerator).setBeanFactory(beanFactory);
+				((BeanFactoryAware) this.fileNameGenerator).setBeanFactory(this.beanFactory);
 			}
 			if (this.fileNameProcessor != null) {
-				this.fileNameProcessor.setBeanFactory(beanFactory);
+				this.fileNameProcessor.setBeanFactory(this.beanFactory);
 			}
 		}
 		if (this.autoCreateDirectory) {
@@ -296,48 +295,11 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 		final StreamHolder inputStreamHolder = payloadToInputStream(message);
 		if (inputStreamHolder != null) {
 			try {
-				return this.execute(session -> {
-					String fileName = inputStreamHolder.getName();
-					try {
-						String remoteDirectory = RemoteFileTemplate.this.directoryExpressionProcessor
-								.processMessage(message);
-						remoteDirectory = RemoteFileTemplate.this.normalizeDirectoryPath(remoteDirectory);
-						if (StringUtils.hasText(subDirectory)) {
-							if (subDirectory.startsWith(RemoteFileTemplate.this.remoteFileSeparator)) {
-								remoteDirectory += subDirectory.substring(1);
-							}
-							else {
-								remoteDirectory += RemoteFileTemplate.this.normalizeDirectoryPath(subDirectory);
-							}
-						}
-						String temporaryRemoteDirectory = remoteDirectory;
-						if (RemoteFileTemplate.this.temporaryDirectoryExpressionProcessor != null) {
-							temporaryRemoteDirectory = RemoteFileTemplate.this.temporaryDirectoryExpressionProcessor
-									.processMessage(message);
-						}
-						fileName = RemoteFileTemplate.this.fileNameGenerator.generateFileName(message);
-						RemoteFileTemplate.this.sendFileToRemoteDirectory(inputStreamHolder.getStream(),
-								temporaryRemoteDirectory, remoteDirectory, fileName, session, mode);
-						return remoteDirectory + fileName;
-					}
-					catch (FileNotFoundException e) {
-						throw new MessageDeliveryException(message, "File [" + inputStreamHolder.getName()
-								+ "] not found in local working directory; it was moved or deleted unexpectedly.", e);
-					}
-					catch (IOException e) {
-						throw new MessageDeliveryException(message, "Failed to transfer file ["
-								+ inputStreamHolder.getName() + " -> " + fileName
-								+ "] from local directory to remote directory.", e);
-					}
-					catch (Exception e) {
-						throw new MessageDeliveryException(message, "Error handling message for file ["
-								+ inputStreamHolder.getName() + " -> " + fileName + "]", e);
-					}
-				});
+				return execute(session -> doSend(message, subDirectory, mode, inputStreamHolder, session));
 			}
 			finally {
 				try {
-					inputStreamHolder.getStream().close();
+					inputStreamHolder.stream.close();
 				}
 				catch (IOException e) {
 				}
@@ -349,6 +311,45 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 				this.logger.warn("File " + message.getPayload() + " does not exist");
 			}
 			return null;
+		}
+	}
+
+	private String doSend(Message<?> message, String subDirectory, FileExistsMode mode,
+			StreamHolder inputStreamHolder, Session<F> session) {
+
+		String fileName = inputStreamHolder.name;
+		try {
+			String remoteDirectory = this.directoryExpressionProcessor.processMessage(message);
+			remoteDirectory = normalizeDirectoryPath(remoteDirectory);
+			if (StringUtils.hasText(subDirectory)) {
+				if (subDirectory.startsWith(this.remoteFileSeparator)) {
+					remoteDirectory += subDirectory.substring(1);
+				}
+				else {
+					remoteDirectory += normalizeDirectoryPath(subDirectory);
+				}
+			}
+			String temporaryRemoteDirectory = remoteDirectory;
+			if (this.temporaryDirectoryExpressionProcessor != null) {
+				temporaryRemoteDirectory = this.temporaryDirectoryExpressionProcessor.processMessage(message);
+			}
+			fileName = this.fileNameGenerator.generateFileName(message);
+			sendFileToRemoteDirectory(inputStreamHolder.stream, temporaryRemoteDirectory, remoteDirectory, fileName,
+					session, mode);
+			return remoteDirectory + fileName;
+		}
+		catch (FileNotFoundException e) {
+			throw new MessageDeliveryException(message, "File [" + inputStreamHolder.name
+					+ "] not found in local working directory; it was moved or deleted unexpectedly.", e);
+		}
+		catch (IOException e) {
+			throw new MessageDeliveryException(message, "Failed to transfer file ["
+					+ inputStreamHolder.name + " -> " + fileName
+					+ "] from local directory to remote directory.", e);
+		}
+		catch (Exception e) {
+			throw new MessageDeliveryException(message, "Error handling message for file ["
+					+ inputStreamHolder.name + " -> " + fileName + "]", e);
 		}
 	}
 
@@ -392,16 +393,9 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 	public boolean get(final String remotePath, final InputStreamCallback callback) {
 		Assert.notNull(remotePath, "'remotePath' cannot be null");
 		return execute(session -> {
-			InputStream inputStream = null;
-			try {
-				inputStream = session.readRaw(remotePath);
+			try (InputStream inputStream = session.readRaw(remotePath)) {
 				callback.doWithInputStream(inputStream);
 				return session.finalizeRaw();
-			}
-			finally {
-				if (inputStream != null) {
-					inputStream.close();
-				}
 			}
 		});
 	}
@@ -443,8 +437,8 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 			return callback.doInSession(session);
 		}
 		catch (Exception e) {
-			if (session instanceof CachingSessionFactory<?>.CachedSession) {
-				((CachingSessionFactory.CachedSession) session).dirty();
+			if (session != null) {
+				session.dirty();
 			}
 			if (e instanceof MessagingException) {
 				throw (MessagingException) e;
@@ -452,14 +446,12 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 			throw new MessagingException("Failed to execute on session", e);
 		}
 		finally {
-			if (!invokeScope) {
+			if (!invokeScope && session != null) {
 				try {
 					session.close();
 				}
 				catch (Exception ignored) {
-					if (this.logger.isDebugEnabled()) {
-						this.logger.debug("failed to close Session", ignored);
-					}
+					this.logger.debug("failed to close Session", ignored);
 				}
 			}
 		}
@@ -536,11 +528,11 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 		}
 	}
 
-	private void sendFileToRemoteDirectory(InputStream inputStream, String temporaryRemoteDirectory,
-			String remoteDirectory, String fileName, Session<F> session, FileExistsMode mode) throws IOException {
+	private void sendFileToRemoteDirectory(InputStream inputStream, String temporaryRemoteDirectoryArg,
+			String remoteDirectoryArg, String fileName, Session<F> session, FileExistsMode mode) throws IOException {
 
-		remoteDirectory = this.normalizeDirectoryPath(remoteDirectory);
-		temporaryRemoteDirectory = this.normalizeDirectoryPath(temporaryRemoteDirectory);
+		String remoteDirectory = normalizeDirectoryPath(remoteDirectoryArg);
+		String temporaryRemoteDirectory = normalizeDirectoryPath(temporaryRemoteDirectoryArg);
 
 		String remoteFilePath = remoteDirectory + fileName;
 		String tempRemoteFilePath = temporaryRemoteDirectory + fileName;
@@ -558,13 +550,13 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 			}
 		}
 
-		try {
+		try (InputStream stream = inputStream) {
 			boolean rename = this.useTemporaryFileName;
 			if (FileExistsMode.REPLACE.equals(mode)) {
-				session.write(inputStream, tempFilePath);
+				session.write(stream, tempFilePath);
 			}
 			else if (FileExistsMode.APPEND.equals(mode)) {
-				session.append(inputStream, tempFilePath);
+				session.append(stream, tempFilePath);
 			}
 			else {
 				if (exists(remoteFilePath)) {
@@ -580,7 +572,7 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 					rename = false;
 				}
 				else {
-					session.write(inputStream, tempFilePath);
+					session.write(stream, tempFilePath);
 				}
 			}
 			// then rename it to its final name if necessary
@@ -591,19 +583,18 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 		catch (Exception e) {
 			throw new MessagingException("Failed to write to '" + tempFilePath + "' while uploading the file", e);
 		}
-		finally {
-			inputStream.close();
-		}
 	}
 
 	private String normalizeDirectoryPath(String directoryPath) {
 		if (!StringUtils.hasText(directoryPath)) {
-			directoryPath = "";
+			return "";
 		}
 		else if (!directoryPath.endsWith(this.remoteFileSeparator)) {
-			directoryPath += this.remoteFileSeparator;
+			return directoryPath + this.remoteFileSeparator;
 		}
-		return directoryPath;
+		else {
+			return directoryPath;
+		}
 	}
 
 	private static final class StreamHolder {
@@ -612,17 +603,9 @@ public class RemoteFileTemplate<F> implements RemoteFileOperations<F>, Initializ
 
 		private final String name;
 
-		private StreamHolder(InputStream stream, String name) {
+		StreamHolder(InputStream stream, String name) {
 			this.stream = stream;
 			this.name = name;
-		}
-
-		public InputStream getStream() {
-			return this.stream;
-		}
-
-		public String getName() {
-			return this.name;
 		}
 
 	}

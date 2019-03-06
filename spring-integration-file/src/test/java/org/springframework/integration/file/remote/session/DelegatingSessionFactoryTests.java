@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2016 the original author or authors.
+ * Copyright 2015-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,9 @@
 
 package org.springframework.integration.file.remote.session;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -50,6 +49,8 @@ import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
 /**
  * @author Gary Russell
+ * @author Artem Bilan
+ *
  * @since 4.2
  *
  */
@@ -77,32 +78,35 @@ public class DelegatingSessionFactoryTests {
 
 	@Test
 	public void testDelegates() {
-		assertEquals(foo.mockSession, this.dsf.getSession("foo"));
-		assertEquals(bar.mockSession, this.dsf.getSession("bar"));
-		assertEquals(bar.mockSession, this.dsf.getSession("junk"));
-		assertEquals(bar.mockSession, this.dsf.getSession());
+		assertThat(this.dsf.getSession("foo")).isEqualTo(foo.mockSession);
+		assertThat(this.dsf.getSession("bar")).isEqualTo(bar.mockSession);
+		assertThat(this.dsf.getSession("junk")).isEqualTo(bar.mockSession);
+		assertThat(this.dsf.getSession()).isEqualTo(bar.mockSession);
 		this.dsf.setThreadKey("foo");
-		assertEquals(foo.mockSession, this.dsf.getSession("foo"));
+		assertThat(this.dsf.getSession("foo")).isEqualTo(foo.mockSession);
 		this.dsf.clearThreadKey();
 		TestSessionFactory factory = new TestSessionFactory();
 		this.sessionFactoryLocator.addSessionFactory("baz", factory);
 		this.dsf.setThreadKey("baz");
-		assertEquals(factory.mockSession, this.dsf.getSession("baz"));
+		assertThat(this.dsf.getSession("baz")).isEqualTo(factory.mockSession);
 		this.dsf.clearThreadKey();
-		assertSame(factory, sessionFactoryLocator.removeSessionFactory("baz"));
+		assertThat(sessionFactoryLocator.removeSessionFactory("baz")).isSameAs(factory);
 	}
 
 	@Test
 	public void testFlow() throws Exception {
-		in.send(new GenericMessage<String>("foo"));
+		given(foo.mockSession.list(anyString()))
+				.willReturn(new String[0]);
+		in.send(new GenericMessage<>("foo"));
 		Message<?> received = out.receive(0);
-		assertNotNull(received);
+		assertThat(received).isNotNull();
 		verify(foo.mockSession).list("foo/");
-		assertNull(TestUtils.getPropertyValue(dsf, "threadKey", ThreadLocal.class).get());
+		assertThat(TestUtils.getPropertyValue(dsf, "threadKey", ThreadLocal.class).get()).isNull();
 	}
 
 	@Configuration
-	@ImportResource("classpath:/org/springframework/integration/file/remote/session/delegating-session-factory-context.xml")
+	@ImportResource(
+			"classpath:/org/springframework/integration/file/remote/session/delegating-session-factory-context.xml")
 	@EnableIntegration
 	public static class Config {
 
@@ -119,59 +123,59 @@ public class DelegatingSessionFactoryTests {
 		@Bean
 		DelegatingSessionFactory<String> dsf() {
 			SessionFactoryLocator<String> sff = sessionFactoryLocator();
-			return new DelegatingSessionFactory<String>(sff);
+			return new DelegatingSessionFactory<>(sff);
 		}
 
 		@Bean
 		public SessionFactoryLocator<String> sessionFactoryLocator() {
-			Map<Object, SessionFactory<String>> factories = new HashMap<Object, SessionFactory<String>>();
+			Map<Object, SessionFactory<String>> factories = new HashMap<>();
 			factories.put("foo", foo());
 			TestSessionFactory bar = bar();
 			factories.put("bar", bar);
-			SessionFactoryLocator<String> sff = new DefaultSessionFactoryLocator<String>(factories, bar);
-			return sff;
+			return new DefaultSessionFactoryLocator<>(factories, bar);
 		}
 
 		@ServiceActivator(inputChannel = "c1")
 		@Bean
 		MessageHandler handler() {
-			AbstractRemoteFileOutboundGateway<String> gateway = new AbstractRemoteFileOutboundGateway<String>(dsf(), "ls", "payload") {
+			AbstractRemoteFileOutboundGateway<String> gateway =
+					new AbstractRemoteFileOutboundGateway<String>(dsf(), "ls", "payload") {
 
-				@Override
-				protected boolean isDirectory(String file) {
-					return false;
-				}
+						@Override
+						protected boolean isDirectory(String file) {
+							return false;
+						}
 
-				@Override
-				protected boolean isLink(String file) {
-					return false;
-				}
+						@Override
+						protected boolean isLink(String file) {
+							return false;
+						}
 
-				@Override
-				protected String getFilename(String file) {
-					return file;
-				}
+						@Override
+						protected String getFilename(String file) {
+							return file;
+						}
 
-				@Override
-				protected String getFilename(AbstractFileInfo<String> file) {
-					return file.getFilename();
-				}
+						@Override
+						protected String getFilename(AbstractFileInfo<String> file) {
+							return file.getFilename();
+						}
 
-				@Override
-				protected long getModified(String file) {
-					return 0;
-				}
+						@Override
+						protected long getModified(String file) {
+							return 0;
+						}
 
-				@Override
-				protected List<AbstractFileInfo<String>> asFileInfoList(Collection<String> files) {
-					return null;
-				}
+						@Override
+						protected List<AbstractFileInfo<String>> asFileInfoList(Collection<String> files) {
+							return null;
+						}
 
-				@Override
-				protected String enhanceNameWithSubDirectory(String file, String directory) {
-					return null;
-				}
-			};
+						@Override
+						protected String enhanceNameWithSubDirectory(String file, String directory) {
+							return null;
+						}
+					};
 			gateway.setOutputChannelName("c2");
 			gateway.setOptions("-1");
 			return gateway;

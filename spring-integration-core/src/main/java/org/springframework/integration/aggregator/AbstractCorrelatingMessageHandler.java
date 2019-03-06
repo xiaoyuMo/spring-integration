@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,15 +22,12 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.Lock;
 
 import org.aopalliance.aop.Advice;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.BeanFactory;
@@ -48,24 +45,23 @@ import org.springframework.integration.handler.AbstractMessageProducingHandler;
 import org.springframework.integration.handler.DiscardingMessageHandler;
 import org.springframework.integration.store.MessageGroup;
 import org.springframework.integration.store.MessageGroupStore;
-import org.springframework.integration.store.MessageStore;
 import org.springframework.integration.store.SimpleMessageGroup;
 import org.springframework.integration.store.SimpleMessageStore;
+import org.springframework.integration.store.UniqueExpiryCallback;
 import org.springframework.integration.support.AbstractIntegrationMessageBuilder;
-import org.springframework.integration.support.MessageBuilder;
 import org.springframework.integration.support.locks.DefaultLockRegistry;
 import org.springframework.integration.support.locks.LockRegistry;
 import org.springframework.integration.util.UUIDConverter;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
-import org.springframework.scheduling.TaskScheduler;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 
 /**
  * Abstract Message handler that holds a buffer of correlated messages in a
- * {@link MessageStore}. This class takes care of correlated groups of messages
+ * {@link org.springframework.integration.store.MessageStore}.
+ * This class takes care of correlated groups of messages
  * that can be completed in batches. It is useful for custom implementation of
  * MessageHandlers that require correlation and is used as a base class for Aggregator -
  * {@link AggregatingMessageHandler} and Resequencer - {@link ResequencingMessageHandler},
@@ -79,7 +75,8 @@ import org.springframework.util.CollectionUtils;
  * {@link HeaderAttributeCorrelationStrategy} and the {@link ReleaseStrategy} will be a
  * {@link SequenceSizeReleaseStrategy}.
  * <p>
- * Use proper {@link CorrelationStrategy} for cases when same {@link MessageStore} is used
+ * Use proper {@link CorrelationStrategy} for cases when same
+ * {@link org.springframework.integration.store.MessageStore} is used
  * for multiple handlers to ensure uniqueness of message groups across handlers.
  *
  * @author Iwein Fuld
@@ -96,13 +93,9 @@ import org.springframework.util.CollectionUtils;
 public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageProducingHandler
 		implements DiscardingMessageHandler, DisposableBean, ApplicationEventPublisherAware, Lifecycle {
 
-	protected final Log logger = LogFactory.getLog(getClass());
-
 	private final Comparator<Message<?>> sequenceNumberComparator = new MessageSequenceComparator();
 
 	private final Map<UUID, ScheduledFuture<?>> expireGroupScheduledFutures = new ConcurrentHashMap<>();
-
-	private final Set<Object> groupIds = ConcurrentHashMap.newKeySet();
 
 	private MessageGroupProcessor outputProcessor;
 
@@ -188,8 +181,9 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 
 	public final void setMessageStore(MessageGroupStore store) {
 		this.messageStore = store;
-		store.registerMessageGroupExpiryCallback(
-				(messageGroupStore, group) -> this.forceReleaseProcessor.processMessageGroup(group));
+		UniqueExpiryCallback expiryCallback =
+				(messageGroupStore, group) -> this.forceReleaseProcessor.processMessageGroup(group);
+		store.registerMessageGroupExpiryCallback(expiryCallback);
 	}
 
 	public void setCorrelationStrategy(CorrelationStrategy correlationStrategy) {
@@ -275,20 +269,16 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 	}
 
 	/**
-	 * Perform a {@link MessageBuilder#popSequenceDetails()} for output message or not.
-	 * Default to true.
-	 * This option removes the sequence information added by the nearest upstream component with
-	 * {@code applySequence=true} (for example splitter).
+	 * Perform a
+	 * {@link org.springframework.integration.support.MessageBuilder#popSequenceDetails()}
+	 * for output message or not. Default to true. This option removes the sequence
+	 * information added by the nearest upstream component with {@code applySequence=true}
+	 * (for example splitter).
 	 * @param popSequence the boolean flag to use.
 	 * @since 5.1
 	 */
 	public void setPopSequence(boolean popSequence) {
 		this.popSequence = popSequence;
-	}
-
-	@Override
-	public void setTaskScheduler(TaskScheduler taskScheduler) {
-		super.setTaskScheduler(taskScheduler);
 	}
 
 	protected boolean isReleaseLockBeforeSend() {
@@ -312,7 +302,7 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		Assert.state(!(this.discardChannelName != null && this.discardChannel != null),
 				"'discardChannelName' and 'discardChannel' are mutually exclusive.");
@@ -396,13 +386,10 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 
 	@Override
 	public MessageChannel getDiscardChannel() {
-		if (this.discardChannelName != null) {
-			synchronized (this) {
-				if (this.discardChannelName != null) {
-					this.discardChannel = getChannelResolver().resolveDestination(this.discardChannelName);
-					this.discardChannelName = null;
-				}
-			}
+		String channelName = this.discardChannelName;
+		if (channelName != null) {
+			this.discardChannel = getChannelResolver().resolveDestination(channelName);
+			this.discardChannelName = null;
 		}
 		return this.discardChannel;
 	}
@@ -444,7 +431,7 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 	}
 
 	@Override
-	protected void handleMessageInternal(Message<?> message) throws Exception {
+	protected void handleMessageInternal(Message<?> message) throws InterruptedException {
 		Object correlationKey = this.correlationStrategy.getCorrelationKey(message);
 		Assert.state(correlationKey != null,
 				"Null correlation not allowed.  Maybe the CorrelationStrategy is failing?");
@@ -459,52 +446,62 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 		boolean noOutput = true;
 		lock.lockInterruptibly();
 		try {
-			ScheduledFuture<?> scheduledFuture = this.expireGroupScheduledFutures.remove(groupIdUuid);
-			if (scheduledFuture != null) {
-				boolean canceled = scheduledFuture.cancel(true);
-				if (canceled && this.logger.isDebugEnabled()) {
-					this.logger.debug("Cancel 'ScheduledFuture' for MessageGroup with Correlation Key [ "
-							+ correlationKey + "].");
-				}
-			}
-			MessageGroup messageGroup = this.messageStore.getMessageGroup(correlationKey);
-			if (this.sequenceAware) {
-				messageGroup = new SequenceAwareMessageGroup(messageGroup);
-			}
-
-			if (!messageGroup.isComplete() && messageGroup.canAdd(message)) {
-				if (this.logger.isTraceEnabled()) {
-					this.logger.trace("Adding message to group [ " + messageGroup + "]");
-				}
-				messageGroup = this.store(correlationKey, message);
-
-				if (this.releaseStrategy.canRelease(messageGroup)) {
-					Collection<Message<?>> completedMessages = null;
-					try {
-						noOutput = false;
-						completedMessages = completeGroup(message, correlationKey, messageGroup, lock);
-					}
-					finally {
-						// Possible clean (implementation dependency) up
-						// even if there was an exception processing messages
-						afterRelease(messageGroup, completedMessages);
-					}
-					if (!isExpireGroupsUponCompletion() && this.minimumTimeoutForEmptyGroups > 0) {
-						removeEmptyGroupAfterTimeout(messageGroup, this.minimumTimeoutForEmptyGroups);
-					}
-				}
-				else {
-					scheduleGroupToForceComplete(messageGroup);
-				}
-			}
-			else {
-				noOutput = false;
-				discardMessage(message, lock);
-			}
+			noOutput = processMessageForGroup(message, correlationKey, groupIdUuid, lock);
 		}
 		finally {
 			if (noOutput || !this.releaseLockBeforeSend) {
 				lock.unlock();
+			}
+		}
+	}
+
+	private boolean processMessageForGroup(Message<?> message, Object correlationKey, UUID groupIdUuid, Lock lock) {
+		boolean noOutput = true;
+		cancelScheduledFutureIfAny(correlationKey, groupIdUuid, true);
+		MessageGroup messageGroup = this.messageStore.getMessageGroup(correlationKey);
+		if (this.sequenceAware) {
+			messageGroup = new SequenceAwareMessageGroup(messageGroup);
+		}
+
+		if (!messageGroup.isComplete() && messageGroup.canAdd(message)) {
+			if (this.logger.isTraceEnabled()) {
+				this.logger.trace("Adding message to group [ " + messageGroup + "]");
+			}
+			messageGroup = store(correlationKey, message);
+
+			if (this.releaseStrategy.canRelease(messageGroup)) {
+				Collection<Message<?>> completedMessages = null;
+				try {
+					noOutput = false;
+					completedMessages = completeGroup(message, correlationKey, messageGroup, lock);
+				}
+				finally {
+					// Possible clean (implementation dependency) up
+					// even if there was an exception processing messages
+					afterRelease(messageGroup, completedMessages);
+				}
+				if (!isExpireGroupsUponCompletion() && this.minimumTimeoutForEmptyGroups > 0) {
+					removeEmptyGroupAfterTimeout(messageGroup, this.minimumTimeoutForEmptyGroups);
+				}
+			}
+			else {
+				scheduleGroupToForceComplete(messageGroup);
+			}
+		}
+		else {
+			noOutput = false;
+			discardMessage(message, lock);
+		}
+		return noOutput;
+	}
+
+	private void cancelScheduledFutureIfAny(Object correlationKey, UUID groupIdUuid, boolean mayInterruptIfRunning) {
+		ScheduledFuture<?> scheduledFuture = this.expireGroupScheduledFutures.remove(groupIdUuid);
+		if (scheduledFuture != null) {
+			boolean canceled = scheduledFuture.cancel(mayInterruptIfRunning);
+			if (canceled && this.logger.isDebugEnabled()) {
+				this.logger.debug("Cancel 'ScheduledFuture' for MessageGroup with Correlation Key [ "
+						+ correlationKey + "].");
 			}
 		}
 	}
@@ -616,7 +613,10 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 	}
 
 	private void discardMessage(Message<?> message) {
-		this.messagingTemplate.send(getDiscardChannel(), message);
+		MessageChannel messageChannel = getDiscardChannel();
+		if (messageChannel != null) {
+			this.messagingTemplate.send(messageChannel, message);
+		}
 	}
 
 	/**
@@ -640,20 +640,14 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 	protected void forceComplete(MessageGroup group) {
 		Object correlationKey = group.getGroupId();
 		// UUIDConverter is no-op if already converted
-		Lock lock = this.lockRegistry.obtain(UUIDConverter.getUUID(correlationKey).toString());
+		UUID groupId = UUIDConverter.getUUID(correlationKey);
+		Lock lock = this.lockRegistry.obtain(groupId.toString());
 		boolean removeGroup = true;
 		boolean noOutput = true;
 		try {
 			lock.lockInterruptibly();
 			try {
-				ScheduledFuture<?> scheduledFuture =
-						this.expireGroupScheduledFutures.remove(UUIDConverter.getUUID(correlationKey));
-				if (scheduledFuture != null) {
-					boolean canceled = scheduledFuture.cancel(false);
-					if (canceled && this.logger.isDebugEnabled()) {
-						this.logger.debug("Cancel 'forceComplete' scheduling for MessageGroup [ " + group + "].");
-					}
-				}
+				cancelScheduledFutureIfAny(correlationKey, groupId, false);
 				MessageGroup groupNow = group;
 				/*
 				 * If the group argument is not already complete,
@@ -746,7 +740,6 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 	protected void remove(MessageGroup group) {
 		Object correlationKey = group.getGroupId();
 		this.messageStore.removeMessageGroup(correlationKey);
-		this.groupIds.remove(group.getGroupId());
 	}
 
 	protected int findLastReleasedSequenceNumber(Object groupId, Collection<Message<?>> partialSequence) {
@@ -755,7 +748,6 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 	}
 
 	protected MessageGroup store(Object correlationKey, Message<?> message) {
-		this.groupIds.add(correlationKey);
 		return this.messageStore.addMessageToGroup(correlationKey, message);
 	}
 
@@ -949,9 +941,7 @@ public abstract class AbstractCorrelatingMessageHandler extends AbstractMessageP
 
 		@Override
 		public Object processMessageGroup(MessageGroup group) {
-			if (AbstractCorrelatingMessageHandler.this.groupIds.contains(group.getGroupId())) {
-				forceComplete(group);
-			}
+			forceComplete(group);
 			return null;
 		}
 

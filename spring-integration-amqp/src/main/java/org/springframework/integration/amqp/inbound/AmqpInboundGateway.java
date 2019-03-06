@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.AbstractMessageListenerContainer;
 import org.springframework.amqp.rabbit.listener.api.ChannelAwareMessageListener;
-import org.springframework.amqp.rabbit.listener.exception.ListenerExecutionFailedException;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.amqp.support.converter.SimpleMessageConverter;
@@ -38,9 +37,10 @@ import org.springframework.integration.StaticMessageHeaderAccessor;
 import org.springframework.integration.amqp.support.AmqpHeaderMapper;
 import org.springframework.integration.amqp.support.AmqpMessageHeaderErrorMessageStrategy;
 import org.springframework.integration.amqp.support.DefaultAmqpHeaderMapper;
+import org.springframework.integration.amqp.support.EndpointUtils;
 import org.springframework.integration.gateway.MessagingGatewaySupport;
-import org.springframework.integration.support.ErrorMessageStrategy;
 import org.springframework.integration.support.ErrorMessageUtils;
+import org.springframework.messaging.MessageChannel;
 import org.springframework.retry.RecoveryCallback;
 import org.springframework.retry.support.RetrySynchronizationManager;
 import org.springframework.retry.support.RetryTemplate;
@@ -181,7 +181,7 @@ public class AmqpInboundGateway extends MessagingGatewaySupport {
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		if (this.retryTemplate != null) {
 			Assert.state(getErrorChannel() == null, "Cannot have an 'errorChannel' property when a 'RetryTemplate' is "
 					+ "provided; use an 'ErrorMessageSendingRecoverer' in the 'recoveryCallback' property to "
@@ -215,7 +215,8 @@ public class AmqpInboundGateway extends MessagingGatewaySupport {
 	 * If there's a retry template, it will set the attributes holder via the listener. If
 	 * there's no retry template, but there's an error channel, we create a new attributes
 	 * holder here. If an attributes holder exists (by either method), we set the
-	 * attributes for use by the {@link ErrorMessageStrategy}.
+	 * attributes for use by the
+	 * {@link org.springframework.integration.support.ErrorMessageStrategy}.
 	 * @param amqpMessage the AMQP message to use.
 	 * @param message the Spring Messaging message to use.
 	 * @since 4.3.10
@@ -280,10 +281,12 @@ public class AmqpInboundGateway extends MessagingGatewaySupport {
 		private org.springframework.messaging.Message<Object> convert(Message message, Channel channel) {
 			Map<String, Object> headers = null;
 			Object payload = null;
+			boolean isManualAck = AmqpInboundGateway.this.messageListenerContainer
+					.getAcknowledgeMode() == AcknowledgeMode.MANUAL;
 			try {
 				payload = AmqpInboundGateway.this.amqpMessageConverter.fromMessage(message);
 				headers = AmqpInboundGateway.this.headerMapper.toHeadersFromRequest(message.getMessageProperties());
-				if (AmqpInboundGateway.this.messageListenerContainer.getAcknowledgeMode() == AcknowledgeMode.MANUAL) {
+				if (isManualAck) {
 					headers.put(AmqpHeaders.DELIVERY_TAG, message.getMessageProperties().getDeliveryTag());
 					headers.put(AmqpHeaders.CHANNEL, channel);
 				}
@@ -292,10 +295,11 @@ public class AmqpInboundGateway extends MessagingGatewaySupport {
 				}
 			}
 			catch (RuntimeException e) {
-				if (getErrorChannel() != null) {
+				MessageChannel errorChannel = getErrorChannel();
+				if (errorChannel != null) {
 					setAttributesIfNecessary(message, null);
-					AmqpInboundGateway.this.messagingTemplate.send(getErrorChannel(), buildErrorMessage(null,
-							new ListenerExecutionFailedException("Message conversion failed", e, message)));
+					AmqpInboundGateway.this.messagingTemplate.send(errorChannel, buildErrorMessage(null,
+									EndpointUtils.errorMessagePayload(message, channel, isManualAck, e)));
 				}
 				else {
 					throw e;

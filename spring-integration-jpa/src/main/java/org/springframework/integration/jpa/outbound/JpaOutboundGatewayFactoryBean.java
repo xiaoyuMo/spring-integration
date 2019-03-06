@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,19 +20,19 @@ import java.util.List;
 
 import org.aopalliance.aop.Advice;
 
-import org.springframework.beans.factory.FactoryBean;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.config.AbstractFactoryBean;
 import org.springframework.integration.jpa.core.JpaExecutor;
 import org.springframework.integration.jpa.support.OutboundGatewayType;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
-import org.springframework.transaction.interceptor.TransactionInterceptor;
 
 /**
  * The {@link JpaOutboundGatewayFactoryBean} creates instances of the
- * {@link JpaOutboundGateway}. Optionally this {@link FactoryBean} will add Aop
- * Advices (e.g. {@link TransactionInterceptor} to the {@link JpaOutboundGateway}
- * instance.
+ * {@link JpaOutboundGateway}. Optionally this
+ * {@link org.springframework.beans.factory.FactoryBean} will add Aop Advices (e.g.
+ * {@link org.springframework.transaction.interceptor.TransactionInterceptor} to the
+ * {@link JpaOutboundGateway} instance.
  *
  * @author Amol Nayak
  * @author Gunnar Hillert
@@ -132,7 +132,10 @@ public class JpaOutboundGatewayFactoryBean extends AbstractFactoryBean<JpaOutbou
 		if (this.adviceChain != null) {
 			jpaOutboundGateway.setAdviceChain(this.adviceChain);
 		}
-		jpaOutboundGateway.setBeanFactory(this.getBeanFactory());
+		BeanFactory beanFactory = getBeanFactory();
+		if (beanFactory != null) {
+			jpaOutboundGateway.setBeanFactory(beanFactory);
+		}
 		jpaOutboundGateway.afterPropertiesSet();
 		return jpaOutboundGateway;
 	}

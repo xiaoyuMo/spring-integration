@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2016 the original author or authors.
+ * Copyright 2014-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,12 +61,14 @@ import org.springframework.util.StringUtils;
  *
  * @author Artem Bilan
  * @author Gary Russell
+ *
  * @since 4.0
  */
 public class IntegrationComponentScanRegistrar implements ImportBeanDefinitionRegistrar,
 		ResourceLoaderAware, EnvironmentAware {
 
-	private final Map<TypeFilter, ImportBeanDefinitionRegistrar> componentRegistrars = new HashMap<TypeFilter, ImportBeanDefinitionRegistrar>();
+	private final Map<TypeFilter, ImportBeanDefinitionRegistrar> componentRegistrars =
+			new HashMap<TypeFilter, ImportBeanDefinitionRegistrar>();
 
 	private ResourceLoader resourceLoader;
 
@@ -98,16 +100,18 @@ public class IntegrationComponentScanRegistrar implements ImportBeanDefinitionRe
 			basePackages = Collections.singleton(ClassUtils.getPackageName(importingClassMetadata.getClassName()));
 		}
 
-		ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false) {
+		ClassPathScanningCandidateComponentProvider scanner =
+				new ClassPathScanningCandidateComponentProvider(false, this.environment) {
 
-			@Override
-			protected boolean isCandidateComponent(AnnotatedBeanDefinition beanDefinition) {
-				return beanDefinition.getMetadata().isIndependent()
-						&& !beanDefinition.getMetadata().isAnnotation();
-			}
-		};
+					@Override
+					protected boolean isCandidateComponent(AnnotatedBeanDefinition beanDefinition) {
+						return beanDefinition.getMetadata().isIndependent()
+								&& !beanDefinition.getMetadata().isAnnotation();
+					}
 
-		if ((boolean) componentScan.get("useDefaultFilters")) {
+				};
+
+		if ((boolean) componentScan.get("useDefaultFilters")) { // NOSONAR - never null
 			for (TypeFilter typeFilter : this.componentRegistrars.keySet()) {
 				scanner.addIncludeFilter(typeFilter);
 			}
@@ -147,7 +151,7 @@ public class IntegrationComponentScanRegistrar implements ImportBeanDefinitionRe
 
 		Set<String> basePackages = new HashSet<>();
 
-		for (String pkg : (String[]) componentScan.get("value")) {
+		for (String pkg : (String[]) componentScan.get("value")) { // NOSONAR - never null
 			if (StringUtils.hasText(pkg)) {
 				basePackages.add(pkg);
 			}
@@ -210,7 +214,9 @@ public class IntegrationComponentScanRegistrar implements ImportBeanDefinitionRe
 			if (parserStrategyBean instanceof BeanClassLoaderAware) {
 				ClassLoader classLoader = (registry instanceof ConfigurableBeanFactory ?
 						((ConfigurableBeanFactory) registry).getBeanClassLoader() : resourceLoader.getClassLoader());
-				((BeanClassLoaderAware) parserStrategyBean).setBeanClassLoader(classLoader);
+				if (classLoader != null) {
+					((BeanClassLoaderAware) parserStrategyBean).setBeanClassLoader(classLoader);
+				}
 			}
 			if (parserStrategyBean instanceof BeanFactoryAware && registry instanceof BeanFactory) {
 				((BeanFactoryAware) parserStrategyBean).setBeanFactory((BeanFactory) registry);

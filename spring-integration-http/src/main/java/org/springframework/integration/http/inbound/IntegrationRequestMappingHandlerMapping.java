@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2018 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,9 +26,11 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.DestructionAwareBeanPostProcessor;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.ReflectionUtils;
@@ -76,6 +78,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  * them during the {@link BaseHttpInboundEndpoint} destruction.
  *
  * @author Artem Bilan
+ * @author Gary Russell
  *
  * @since 3.0
  *
@@ -100,10 +103,12 @@ public final class IntegrationRequestMappingHandlerMapping extends RequestMappin
 	}
 
 	@Override
-	@SuppressWarnings("unchecked")
 	public void postProcessBeforeDestruction(Object bean, String beanName) throws BeansException {
 		if (isHandler(bean.getClass())) {
-			unregisterMapping(getMappingForEndpoint((BaseHttpInboundEndpoint) bean));
+			RequestMappingInfo mapping = getMappingForEndpoint((BaseHttpInboundEndpoint) bean);
+			if (mapping != null) {
+				unregisterMapping(mapping);
+			}
 		}
 	}
 
@@ -118,7 +123,8 @@ public final class IntegrationRequestMappingHandlerMapping extends RequestMappin
 	}
 
 	@Override
-	protected HandlerExecutionChain getHandlerExecutionChain(Object handler, HttpServletRequest request) {
+	protected HandlerExecutionChain getHandlerExecutionChain(Object handlerArg, HttpServletRequest request) {
+		Object handler = handlerArg;
 		if (handler instanceof HandlerMethod) {
 			HandlerMethod handlerMethod = (HandlerMethod) handler;
 			Object bean = handlerMethod.getBean();
@@ -141,11 +147,19 @@ public final class IntegrationRequestMappingHandlerMapping extends RequestMappin
 	}
 
 	@Override
-	protected void detectHandlerMethods(Object handler) {
+	protected void detectHandlerMethods(Object handlerArg) {
+		Object handler = handlerArg;
 		if (handler instanceof String) {
-			handler = this.getApplicationContext().getBean((String) handler);
+			ApplicationContext applicationContext = getApplicationContext();
+			if (applicationContext != null) {
+				handler = applicationContext.getBean((String) handler);
+			}
+			else {
+				throw new IllegalStateException("No application context available to lookup bean '"
+						+ handler + "'");
+			}
 		}
-		RequestMappingInfo mapping = this.getMappingForEndpoint((BaseHttpInboundEndpoint) handler);
+		RequestMappingInfo mapping = getMappingForEndpoint((BaseHttpInboundEndpoint) handler);
 		if (mapping != null) {
 			registerMapping(mapping, handler, HANDLE_REQUEST_METHOD);
 		}
@@ -196,6 +210,7 @@ public final class IntegrationRequestMappingHandlerMapping extends RequestMappin
 	 * 'Spring Integration HTTP Inbound Endpoint' {@link RequestMapping}.
 	 * @see RequestMappingHandlerMapping#getMappingForMethod
 	 */
+	@Nullable
 	private RequestMappingInfo getMappingForEndpoint(BaseHttpInboundEndpoint endpoint) {
 		final RequestMapping requestMapping = endpoint.getRequestMapping();
 
@@ -219,11 +234,6 @@ public final class IntegrationRequestMappingHandlerMapping extends RequestMappin
 		return createRequestMappingInfo(requestMappingAnnotation, getCustomTypeCondition(endpoint.getClass()));
 	}
 
-	@Override
-	public void afterPropertiesSet() {
-		// No-op in favor of onApplicationEvent
-	}
-
 	/**
 	 * {@link HttpRequestHandlingEndpointSupport}s may depend on auto-created
 	 * {@code requestChannel}s, so MVC Handlers detection should be postponed
@@ -232,9 +242,14 @@ public final class IntegrationRequestMappingHandlerMapping extends RequestMappin
 	 */
 	@Override
 	public void onApplicationEvent(ContextRefreshedEvent event) {
-		if (!this.initialized.getAndSet(true)) {
+		if (event.getApplicationContext().equals(getApplicationContext()) && !this.initialized.getAndSet(true)) {
 			super.afterPropertiesSet();
 		}
+	}
+
+	@Override
+	public void afterPropertiesSet() {
+		// No-op in favor of onApplicationEvent
 	}
 
 }

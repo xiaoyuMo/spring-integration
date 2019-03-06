@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import org.springframework.amqp.rabbit.connection.Connection;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.integration.amqp.support.AmqpHeaderMapper;
 import org.springframework.integration.amqp.support.DefaultAmqpHeaderMapper;
@@ -35,6 +34,7 @@ import org.springframework.util.Assert;
 /**
  * @author Mark Fisher
  * @author Artem Bilan
+ * @author Gary Russell
  *
  * @since 2.1
  */
@@ -108,7 +108,8 @@ public abstract class AbstractAmqpChannel extends AbstractMessageChannel
 	/**
 	 * Set the delivery mode to use if the message has no
 	 * {@value org.springframework.amqp.support.AmqpHeaders#DELIVERY_MODE}
-	 * header and the message property was not set by the {@code MessagePropertiesConverter}.
+	 * header and the message property was not set by the
+	 * {@code MessagePropertiesConverter}.
 	 * @param defaultDeliveryMode the default delivery mode.
 	 * @since 4.3
 	 */
@@ -150,7 +151,7 @@ public abstract class AbstractAmqpChannel extends AbstractMessageChannel
 	 * {@link org.springframework.amqp.support.converter.SimpleMessageConverter} with a
 	 * String payload that contains json; the converter will set the content type to
 	 * {@code text/plain} which can be overridden to {@code application/json} by setting
-	 * the {@link AmqpHeaders#CONTENT_TYPE} message header.
+	 * the {@link org.springframework.amqp.support.AmqpHeaders#CONTENT_TYPE} message header.
 	 * Only applies when {@link #setExtractPayload(boolean) extractPayload} is true.
 	 * Default: false.
 	 * @param headersMappedLast true if headers are mapped after conversion.
@@ -207,7 +208,7 @@ public abstract class AbstractAmqpChannel extends AbstractMessageChannel
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		if (!this.initialized && this.rabbitTemplate != null) {
 			if (this.connectionFactory != null) {
@@ -218,7 +219,7 @@ public abstract class AbstractAmqpChannel extends AbstractMessageChannel
 	}
 
 	@Override
-	public void destroy() throws Exception {
+	public void destroy() {
 		if (this.connectionFactory != null) {
 			this.connectionFactory.removeConnectionListener(this);
 			this.initialized = false;

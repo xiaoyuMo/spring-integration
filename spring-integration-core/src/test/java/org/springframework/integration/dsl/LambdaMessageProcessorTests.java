@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,9 @@
 
 package org.springframework.integration.dsl;
 
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -32,6 +31,7 @@ import org.springframework.integration.handler.LambdaMessageProcessor;
 import org.springframework.integration.support.converter.ConfigurableCompositeMessageConverter;
 import org.springframework.integration.transformer.GenericTransformer;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageHandlingException;
 import org.springframework.messaging.converter.MessageConverter;
 import org.springframework.messaging.support.GenericMessage;
 
@@ -52,13 +52,14 @@ public class LambdaMessageProcessorTests {
 			fail("Expected exception");
 		}
 		catch (Exception e) {
-			assertThat(e.getCause(), instanceOf(ArithmeticException.class));
+			assertThat(e.getCause()).isInstanceOf(ArithmeticException.class);
 		}
 	}
 
 	@Test
 	public void testMessageAsArgument() {
-		LambdaMessageProcessor lmp = new LambdaMessageProcessor(new GenericTransformer<Message<?>, Message<?>>() {
+		LambdaMessageProcessor lmp = new LambdaMessageProcessor(
+				new GenericTransformer<Message<?>, Message<?>>() { // Must not be lambda
 
 			@Override
 			public Message<?> transform(Message<?> source) {
@@ -69,7 +70,18 @@ public class LambdaMessageProcessorTests {
 		lmp.setBeanFactory(mock(BeanFactory.class));
 		GenericMessage<String> testMessage = new GenericMessage<>("foo");
 		Object result = lmp.processMessage(testMessage);
-		assertSame(testMessage, result);
+		assertThat(result).isSameAs(testMessage);
+	}
+
+	@Test
+	public void testMessageAsArgumentLambda() {
+		LambdaMessageProcessor lmp = new LambdaMessageProcessor(
+				(GenericTransformer<Message<?>, Message<?>>) this::messageTransformer, null);
+		lmp.setBeanFactory(mock(BeanFactory.class));
+		GenericMessage<String> testMessage = new GenericMessage<>("foo");
+		assertThatExceptionOfType(MessageHandlingException.class)
+				.isThrownBy(() -> lmp.processMessage(testMessage))
+				.withCauseInstanceOf(ClassCastException.class);
 	}
 
 	private void handle(GenericHandler<?> h) {

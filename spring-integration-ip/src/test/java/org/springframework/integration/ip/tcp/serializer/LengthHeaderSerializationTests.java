@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,12 @@
 
 package org.springframework.integration.ip.tcp.serializer;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 
 import org.junit.Before;
@@ -30,6 +31,8 @@ import org.junit.Test;
 
 /**
  * @author Gary Russell
+ * @author Artem Bilan
+ *
  * @since 2.0.4
  *
  */
@@ -50,88 +53,123 @@ public class LengthHeaderSerializationTests {
 	}
 
 	@Test
-	public void testInt() throws Exception {
+	public void testInt() throws IOException {
 		AbstractByteArraySerializer serializer = new ByteArrayLengthHeaderSerializer();
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
 		serializer.serialize(TEST.getBytes(), bos);
 		byte[] bytes = bos.toByteArray();
-		assertEquals(0, bytes[0]);
-		assertEquals(0, bytes[1]);
-		assertEquals(0, bytes[2]);
-		assertEquals(TEST.length(), bytes[3]);
+		assertThat(bytes[0]).isEqualTo((byte) 0);
+		assertThat(bytes[1]).isEqualTo((byte) 0);
+		assertThat(bytes[2]).isEqualTo((byte) 0);
+		assertThat(bytes[3]).isEqualTo((byte) TEST.length());
 		ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
 		bytes = serializer.deserialize(bis);
-		assertEquals(TEST, new String(bytes));
+		assertThat(new String(bytes)).isEqualTo(TEST);
 		bytes[0] = -1;
-		bis = new ByteArrayInputStream(bytes);
-		try {
-			bytes = serializer.deserialize(bis);
-			fail("Expected negative length");
-		}
-		catch (IllegalArgumentException e) { }
+		ByteArrayInputStream bisBad = new ByteArrayInputStream(bytes);
+		assertThatIllegalArgumentException().isThrownBy(() -> serializer.deserialize(bisBad));
 	}
 
 	@Test
-	public void testByte() throws Exception {
+	public void testByte() throws IOException {
 		AbstractByteArraySerializer serializer = new ByteArrayLengthHeaderSerializer(
 				ByteArrayLengthHeaderSerializer.HEADER_SIZE_UNSIGNED_BYTE);
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
 		serializer.serialize(test255.getBytes(), bos);
 		byte[] bytes = bos.toByteArray();
-		assertEquals(test255.length(), bytes[0] & 0xff);
+		assertThat(bytes[0] & 0xff).isEqualTo(test255.length());
 		ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
 		bytes = serializer.deserialize(bis);
-		assertEquals(test255, new String(bytes));
+		assertThat(new String(bytes)).isEqualTo(test255);
 		test255 += "x";
-		try {
-			serializer.serialize(test255.getBytes(), bos);
-			fail("Expected overflow");
-		}
-		catch (IllegalArgumentException e) { }
+		assertThatIllegalArgumentException().isThrownBy(() -> serializer.serialize(test255.getBytes(), bos));
 	}
 
 	@Test
-	public void testShort1() throws Exception {
+	public void testShort1() throws IOException {
 		AbstractByteArraySerializer serializer = new ByteArrayLengthHeaderSerializer(
 				ByteArrayLengthHeaderSerializer.HEADER_SIZE_UNSIGNED_SHORT);
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
 		serializer.serialize(test255.getBytes(), bos);
 		byte[] bytes = bos.toByteArray();
-		assertEquals(0, bytes[0]);
-		assertEquals(test255.length(), bytes[1] & 0xff);
+		assertThat(bytes[0]).isEqualTo((byte) 0);
+		assertThat(bytes[1] & 0xff).isEqualTo(test255.length());
 		ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
 		bytes = serializer.deserialize(bis);
-		assertEquals(test255, new String(bytes));
+		assertThat(new String(bytes)).isEqualTo(test255);
 	}
 
 	@Test
-	public void testShort2() throws Exception {
+	public void testShort2() throws IOException {
 		AbstractByteArraySerializer serializer = new ByteArrayLengthHeaderSerializer(
 				ByteArrayLengthHeaderSerializer.HEADER_SIZE_UNSIGNED_SHORT);
 		serializer.setMaxMessageSize(0x10000);
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
 		serializer.serialize(testFFFF.getBytes(), bos);
 		byte[] bytes = bos.toByteArray();
-		assertEquals(0xff, bytes[0] & 0xff);
-		assertEquals(0xff, bytes[1] & 0xff);
+		assertThat(bytes[0] & 0xff).isEqualTo(0xff);
+		assertThat(bytes[1] & 0xff).isEqualTo(0xff);
 		ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
 		bytes = serializer.deserialize(bis);
-		assertEquals(testFFFF, new String(bytes));
+		assertThat(new String(bytes)).isEqualTo(testFFFF);
 		testFFFF += "x";
-		try {
-			serializer.serialize(testFFFF.getBytes(), bos);
-			fail("Expected overflow");
-		}
-		catch (IllegalArgumentException e) { }
+		assertThatIllegalArgumentException().isThrownBy(() -> serializer.serialize(testFFFF.getBytes(), bos));
 	}
 
 	@Test
-	public void testBad() throws Exception {
-		try {
-			new ByteArrayLengthHeaderSerializer(23);
-			fail("Expected illegal argument exception");
-		}
-		catch (IllegalArgumentException e) { }
-
+	public void testBad() {
+		assertThatIllegalArgumentException().isThrownBy(() -> new ByteArrayLengthHeaderSerializer(23));
 	}
+
+	@Test
+	public void testIntInclusive() throws IOException {
+		ByteArrayLengthHeaderSerializer serializer = new ByteArrayLengthHeaderSerializer().inclusive();
+		ByteArrayOutputStream bos = new ByteArrayOutputStream();
+		serializer.serialize(TEST.getBytes(), bos);
+		byte[] bytes = bos.toByteArray();
+		assertThat(bytes[0]).isEqualTo((byte) 0);
+		assertThat(bytes[1]).isEqualTo((byte) 0);
+		assertThat(bytes[2]).isEqualTo((byte) 0);
+		assertThat(bytes[3]).isEqualTo((byte) (TEST.length() + 4));
+		ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+		bytes = serializer.deserialize(bis);
+		assertThat(new String(bytes)).isEqualTo(TEST);
+	}
+
+	@Test
+	public void testByteInclusive() throws IOException {
+		ByteArrayLengthHeaderSerializer serializer = new ByteArrayLengthHeaderSerializer(
+				ByteArrayLengthHeaderSerializer.HEADER_SIZE_UNSIGNED_BYTE).inclusive();
+		ByteArrayOutputStream bos = new ByteArrayOutputStream();
+		serializer.serialize(TEST.getBytes(), bos);
+		byte[] bytes = bos.toByteArray();
+		assertThat(bytes[0] & 0xff).isEqualTo((byte) (TEST.length() + 1));
+		ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+		bytes = serializer.deserialize(bis);
+		assertThat(new String(bytes)).isEqualTo(TEST);
+		assertThatIllegalArgumentException().isThrownBy(() -> serializer.serialize(test255.getBytes(), bos));
+	}
+
+	@Test
+	public void testShort1Inclusive() throws IOException {
+		ByteArrayLengthHeaderSerializer serializer = new ByteArrayLengthHeaderSerializer(
+				ByteArrayLengthHeaderSerializer.HEADER_SIZE_UNSIGNED_SHORT).inclusive();
+		ByteArrayOutputStream bos = new ByteArrayOutputStream();
+		serializer.serialize(TEST.getBytes(), bos);
+		byte[] bytes = bos.toByteArray();
+		assertThat(bytes[0]).isEqualTo((byte) 0);
+		assertThat(bytes[1] & 0xff).isEqualTo(TEST.length() + 2);
+		ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+		bytes = serializer.deserialize(bis);
+		assertThat(new String(bytes)).isEqualTo(TEST);
+	}
+
+	@Test
+	public void testShort2Inclusive() {
+		AbstractByteArraySerializer serializer = new ByteArrayLengthHeaderSerializer(
+				ByteArrayLengthHeaderSerializer.HEADER_SIZE_UNSIGNED_SHORT).inclusive();
+		ByteArrayOutputStream bos = new ByteArrayOutputStream();
+		assertThatIllegalArgumentException().isThrownBy(() -> serializer.serialize(testFFFF.getBytes(), bos));
+	}
+
 }

@@ -188,7 +188,8 @@ However if, for some reason, you need to access the full `MessageGroup`, you sho
 When handling potentially large groups, you should understand how these methods are invoked, because the release strategy may be invoked multiple times before the group is released.
 The most efficient is an implementation of `ReleaseStrategy`, because the aggregator can invoke it directly.
 The second most efficient is a POJO method with a `Collection<Message<?>>` parameter type.
-The least efficient is a POJO method with a `Collection<Something>` type. The framework has to copy the payloads from the messages in the group into a new collection (and possibly attempt conversion on the payloads to `Something`) every time the release strategy is called.
+The least efficient is a POJO method with a `Collection<Something>` type.
+The framework has to copy the payloads from the messages in the group into a new collection (and possibly attempt conversion on the payloads to `Something`) every time the release strategy is called.
 Using `Collection<?>` avoids the conversion but still requires creating the new `Collection`.
 
 For these reasons, for large groups, we recommended that you implement `ReleaseStrategy`.
@@ -597,7 +598,8 @@ Since Spring Integration 2.0, you can handle the various strategies (correlation
 Suppose you have a legacy component that was designed to receive an array of objects.
 We know that the default release strategy assembles all aggregated messages in the `List`.
 Now we have two problems.
-First, we need to extract individual messages from the list. Second, we need to extract the payload of each message and assemble the array of objects.
+First, we need to extract individual messages from the list.
+Second, we need to extract the payload of each message and assemble the array of objects.
 The following example solves both problems:
 
 ====
@@ -811,6 +813,13 @@ The callback has direct access to the store and the message group so that it can
 
 The `MessageGroupStore` maintains a list of these callbacks, which it applies, on demand, to all messages whose timestamps are earlier than a time supplied as a parameter (see the `registerMessageGroupExpiryCallback(..)` and `expireMessageGroups(..)` methods, described earlier).
 For more detail, see <<reaper>>.
+
+IMPORTANT: It is important not to use the same `MessageGroupStore` instance in different aggregator components, when you intend to rely on the `expireMessageGroups` functionality.
+Every `AbstractCorrelatingMessageHandler` registers its own `MessageGroupCallback` based on the `forceComplete()` callback.
+This way each group for expiration may be completed or discarded by the wrong aggregator.
+Starting with version 5.0.10, a `UniqueExpiryCallback` is used from the `AbstractCorrelatingMessageHandler` for the registration callback in the `MessageGroupStore`.
+The `MessageGroupStore`, in turn, checks for presence an instance of this class and logs an error with an appropriate message if one is already present in the callbacks set.
+This way the Framework disallows usage of the `MessageGroupStore` instance in different aggregators/resequencers to avoid the mentioned side effect of expiration the groups not created by the particular correlation handler.
 
 You can call the `expireMessageGroups` method with a timeout value.
 Any message older than the current time minus this value is expired and has the callbacks applied.

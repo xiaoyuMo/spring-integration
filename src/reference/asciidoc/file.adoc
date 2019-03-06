@@ -264,7 +264,8 @@ Therefore, you can also leave off the `prevent-duplicates` and `ignore-hidden` a
 
 [IMPORTANT]
 =====
-Spring Integration 4.2 introduced the `ignore-hidden` attribute. In prior versions, hidden files were included.
+Spring Integration 4.2 introduced the `ignore-hidden` attribute.
+In prior versions, hidden files were included.
 =====
 
 The second channel adapter example uses a custom filter, the third uses the `filename-pattern` attribute to add an `AntPathMatcher` based filter, and the fourth uses the `filename-regex` attribute to add a regular expression pattern-based filter to the `FileReadingMessageSource`.
@@ -454,13 +455,13 @@ public class FileReadingJavaApplication {
     @Bean
     public IntegrationFlow fileReadingFlow() {
          return IntegrationFlows
-                  .from(s -> s.file(new File(INBOUND_PATH))
+                  .from(Files.inboundAdapter(new File(INBOUND_PATH))
                               .patternFilter("*.txt"),
                           e -> e.poller(Pollers.fixedDelay(1000)))
                   .transform(Files.toStringTransformer())
                   .channel("processFileChannel")
                   .get();
-        }
+    }
 
 }
 ----
@@ -481,15 +482,15 @@ Examples of such events include the following:
 ====
 [source,bash]
 ----
-[message=tail: cannot open `/tmp/somefile' for reading:
+[message=tail: cannot open '/tmp/somefile' for reading:
                No such file or directory, file=/tmp/somefile]
 
-[message=tail: `/tmp/somefile' has become accessible, file=/tmp/somefile]
+[message=tail: '/tmp/somefile' has become accessible, file=/tmp/somefile]
 
-[message=tail: `/tmp/somefile' has become inaccessible:
+[message=tail: '/tmp/somefile' has become inaccessible:
                No such file or directory, file=/tmp/somefile]
 
-[message=tail: `/tmp/somefile' has appeared;
+[message=tail: '/tmp/somefile' has appeared;
                following end of new file, file=/tmp/somefile]
 ----
 ====
@@ -573,7 +574,6 @@ In the following example, `IdleEventInterval` is set to `5000`, meaning that, if
 ====
 
 This can be useful when you need to stop the adapter.
-// TODO How does this stop the adapter?
 
 The following example creates an Apache `commons-io` `Tailer` adapter that examines the file for new lines every two seconds and checks for existence of a missing file every ten seconds:
 
@@ -755,7 +755,8 @@ However, this can cause data loss in the event of a failure.
 
 Spring Integration provides several flushing strategies to mitigate this data loss:
 
-* Use `flushInterval`. If a file is not written to for this period of time, it is automatically flushed.
+* Use `flushInterval`.
+If a file is not written to for this period of time, it is automatically flushed.
 This is approximate and may be up to `1.33x` this time (with an average of `1.167x`).
 * Send a message containing a regular expression to the message handler's `trigger` method.
 Files with absolute path names matching the pattern are flushed.
@@ -923,7 +924,7 @@ public class FileWritingJavaApplication {
    	    return IntegrationFlows.from("fileWritingInput")
    		        .enrichHeaders(h -> h.header(FileHeaders.FILENAME, "foo.txt")
    		                  .header("directory", new File(tmpDir.getRoot(), "fileWritingFlow")))
-   	            .handleWithAdapter(a -> a.fileGateway(m -> m.getHeaders().get("directory")))
+   	            .handle(Files.outboundGateway(m -> m.getHeaders().get("directory")))
    	            .channel(MessageChannels.queue("fileWritingResultChannel"))
    	            .get();
     }
@@ -1014,7 +1015,7 @@ The default is `false`.
 When `true`, `apply-sequence` is `false` by default.
 See also `markers-json` (the next attribute).
 <4> When `markers` is true, set this to `true` to have the `FileMarker` objects be converted to a JSON string.
-Requires a supported JSON processor library (Jackson or Boon) on the classpath.
+Requires a supported JSON processor library (e.g. Jackson) on the classpath.
 <5> Set to `false` to disable the inclusion of `sequenceSize` and `sequenceNumber` headers in messages.
 The default is `true`, unless `markers` is `true`.
 When `true` and `markers` is `true`, the markers are included in the sequencing.
@@ -1048,7 +1049,7 @@ public FileSplitter(boolean iterator, boolean markers, boolean markersJson)
 ----
 ====
 
-When `markersJson` is true, the markers are represented as a JSON string, as long as a suitable JSON processor library (such as Jackson or Boon) is on the classpath.
+When `markersJson` is true, the markers are represented as a JSON string, as long as a suitable JSON processor library (e.g Jackson) is on the classpath.
 
 Version 5.0 introduced the `firstLineAsHeader` option to specify that the first line of content is a header (such as column names in a CSV file).
 The argument passed to this property is the header name under which the first line is carried as a header in the messages emitted for the remaining lines.
@@ -1113,3 +1114,33 @@ public class FileSplitterApplication {
 }
 ----
 ====
+
+[[remote-persistent-flf]]
+=== Remote Persistent File List Filters
+
+Inbound and streaming inbound remote file channel adapters (`FTP`, `SFTP`, and other technologies) are configured with corresponding implementations of `AbstractPersistentFileListFilter` by default, configured with an in-memory `MetadataStore`.
+To run in a cluster, these can be replaced with filters using a shared `MetadataStore` (see <<metadata-store>> for more information).
+These filters are used to prevent fetching the same file multiple times (unless it's modified time changes).
+Starting with version 5.2, a file is added to the filter immediately before the file is fetched (and reversed if the fetch fails).
+
+IMPORTANT: In the event of a catastrophic failure (such as power loss), it is possible that the file currently being fetched will remain in the filter and won't be re-fetched when restarting the application.
+In this case you would need to manually remove this file from the `MetadataStore`.
+
+In previous versions, the files were filtered before any were fetched, meaning that several files could be in this state after a catastrophic failure.
+
+In order to facilitate this new behavior, two new methods have been added to `FileListFilter`.
+
+====
+[source, java]
+----
+boolean accept(F file);
+
+boolean supportsSingleFileFiltering();
+----
+====
+
+If a filter returns `true` in `supportsSingleFileFiltering`, it **must** implement `accept()`.
+
+If a remote filter does not support single file filtering (such as the `AbstractMarkerFilePresentFileListFilter`), the adapters revert to the previous behavior.
+
+If multiple filters are in used (using a `CompositeFileListFilter` or `ChainFileListFilter`), then **all** of the delegate filters must support single file filtering in order for the composite filter to support it.

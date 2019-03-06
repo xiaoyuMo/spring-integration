@@ -41,13 +41,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.integration.support.locks.ExpirableLockRegistry;
-import org.springframework.integration.support.locks.LockRegistry;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 import org.springframework.util.Assert;
 import org.springframework.util.ReflectionUtils;
 
 /**
- * Implementation of {@link LockRegistry} providing a distributed lock using Redis.
+ * Implementation of {@link ExpirableLockRegistry} providing a distributed lock using Redis.
  * Locks are stored under the key {@code registryKey:lockKey}. Locks expire after
  * (default 60) seconds. Threads unlocking an
  * expired lock will get an {@link IllegalStateException}. This should be
@@ -92,6 +91,18 @@ public final class RedisLockRegistry implements ExpirableLockRegistry, Disposabl
 					"return false";
 
 
+	private final Map<String, RedisLock> locks = new ConcurrentHashMap<>();
+
+	private final String clientId = UUID.randomUUID().toString();
+
+	private final String registryKey;
+
+	private final StringRedisTemplate redisTemplate;
+
+	private final RedisScript<Boolean> obtainLockScript;
+
+	private final long expireAfter;
+
 	/**
 	 * An {@link ExecutorService} to call {@link StringRedisTemplate#delete(Object)} in
 	 * the separate thread when the current one is interrupted.
@@ -104,18 +115,6 @@ public final class RedisLockRegistry implements ExpirableLockRegistry, Disposabl
 	 * thus should not be shutdown when {@link #destroy()} is called
 	 */
 	private boolean executorExplicitlySet;
-
-	private final Map<String, RedisLock> locks = new ConcurrentHashMap<>();
-
-	private final String clientId = UUID.randomUUID().toString();
-
-	private final String registryKey;
-
-	private final StringRedisTemplate redisTemplate;
-
-	private final RedisScript<Boolean> obtainLockScript;
-
-	private final long expireAfter;
 
 	/**
 	 * Constructs a lock registry with the default (60 second) lock expiration.
@@ -282,13 +281,17 @@ public final class RedisLockRegistry implements ExpirableLockRegistry, Disposabl
 		}
 
 		private boolean obtainLock() {
-			boolean success = RedisLockRegistry.this.redisTemplate.execute(RedisLockRegistry.this.obtainLockScript,
-					Collections.singletonList(this.lockKey), RedisLockRegistry.this.clientId,
-					String.valueOf(RedisLockRegistry.this.expireAfter));
-			if (success) {
+			Boolean success =
+					RedisLockRegistry.this.redisTemplate.execute(RedisLockRegistry.this.obtainLockScript,
+							Collections.singletonList(this.lockKey), RedisLockRegistry.this.clientId,
+							String.valueOf(RedisLockRegistry.this.expireAfter));
+
+			boolean result = Boolean.TRUE.equals(success);
+
+			if (result) {
 				this.lockedAt = System.currentTimeMillis();
 			}
-			return success;
+			return result;
 		}
 
 		@Override
@@ -301,6 +304,11 @@ public final class RedisLockRegistry implements ExpirableLockRegistry, Disposabl
 				return;
 			}
 			try {
+				if (!isAcquiredInThisProcess()) {
+					throw new IllegalStateException("Lock was released in the store due to expiration. " +
+							"The integrity of data protected by this lock may have been compromised.");
+				}
+
 				if (Thread.currentThread().isInterrupted()) {
 					RedisLockRegistry.this.executor.execute(this::removeLockKey);
 				}
@@ -377,10 +385,7 @@ public final class RedisLockRegistry implements ExpirableLockRegistry, Disposabl
 			if (!this.lockKey.equals(other.lockKey)) {
 				return false;
 			}
-			if (this.lockedAt != other.lockedAt) {
-				return false;
-			}
-			return true;
+			return this.lockedAt == other.lockedAt;
 		}
 
 		private RedisLockRegistry getOuterType() {

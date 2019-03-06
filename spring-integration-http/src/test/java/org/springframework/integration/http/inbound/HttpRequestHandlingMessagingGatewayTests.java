@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,10 @@
 
 package org.springframework.integration.http.inbound;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -30,7 +29,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import org.hamcrest.Matchers;
+import javax.servlet.http.HttpServletRequest;
+
 import org.junit.Test;
 
 import org.springframework.beans.factory.BeanFactory;
@@ -45,6 +45,7 @@ import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.integration.channel.DirectChannel;
+import org.springframework.integration.channel.NullChannel;
 import org.springframework.integration.channel.QueueChannel;
 import org.springframework.integration.handler.AbstractReplyProducingMessageHandler;
 import org.springframework.integration.http.AbstractHttpInboundTests;
@@ -57,6 +58,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.SerializationUtils;
+import org.springframework.web.multipart.MultipartResolver;
 
 /**
  * @author Mark Fisher
@@ -85,11 +87,11 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		Message<?> message = requestChannel.receive(0);
-		assertNotNull(message);
-		assertEquals(LinkedMultiValueMap.class, message.getPayload().getClass());
+		assertThat(message).isNotNull();
+		assertThat(message.getPayload().getClass()).isEqualTo(LinkedMultiValueMap.class);
 		LinkedMultiValueMap<String, String> map = (LinkedMultiValueMap<String, String>) message.getPayload();
-		assertEquals(1, map.get("foo").size());
-		assertEquals("bar", map.getFirst("foo"));
+		assertThat(map.get("foo").size()).isEqualTo(1);
+		assertThat(map.getFirst("foo")).isEqualTo("bar");
 	}
 
 	@Test
@@ -109,9 +111,9 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		Message<?> message = requestChannel.receive(0);
-		assertNotNull(message);
-		assertEquals(String.class, message.getPayload().getClass());
-		assertEquals("hello", message.getPayload());
+		assertThat(message).isNotNull();
+		assertThat(message.getPayload().getClass()).isEqualTo(String.class);
+		assertThat(message.getPayload()).isEqualTo("hello");
 	}
 
 	@Test
@@ -127,6 +129,7 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 	private void stringExpectedWithReplyGuts(boolean contentType) throws Exception {
 		DirectChannel requestChannel = new DirectChannel();
 		requestChannel.subscribe(new AbstractReplyProducingMessageHandler() {
+
 			@Override
 			protected Object handleRequestMessage(Message<?> requestMessage) {
 				return requestMessage.getPayload().toString().toUpperCase();
@@ -149,13 +152,14 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		request.setContent("hello".getBytes());
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
-		assertEquals("HELLO", response.getContentAsString());
+		assertThat(response.getContentAsString()).isEqualTo("HELLO");
 	}
 
 	@Test // INT-1767
 	public void noAcceptHeaderOnRequest() throws Exception {
 		DirectChannel requestChannel = new DirectChannel();
 		requestChannel.subscribe(new AbstractReplyProducingMessageHandler() {
+
 			@Override
 			protected Object handleRequestMessage(Message<?> requestMessage) {
 				return requestMessage.getPayload().toString().toUpperCase();
@@ -174,14 +178,15 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		request.setContent("hello".getBytes());
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
-		assertEquals("HELLO", response.getContentAsString());
+		assertThat(response.getContentAsString()).isEqualTo("HELLO");
 		//INT-3120
-		assertNull(response.getHeader("Accept-Charset"));
+		assertThat(response.getHeader("Accept-Charset")).isNull();
 	}
 
 	@Test
 	public void testExceptionConversion() throws Exception {
 		QueueChannel requestChannel = new QueueChannel() {
+
 			@Override
 			protected boolean doSend(Message<?> message, long timeout) {
 				throw new RuntimeException("Planned");
@@ -191,7 +196,7 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		gateway.setBeanFactory(mock(BeanFactory.class));
 		gateway.setRequestChannel(requestChannel);
 		gateway.setConvertExceptions(true);
-		gateway.setMessageConverters(Arrays.<HttpMessageConverter<?>>asList(new TestHttpMessageConverter()));
+		gateway.setMessageConverters(Collections.singletonList(new TestHttpMessageConverter()));
 		gateway.afterPropertiesSet();
 		gateway.start();
 
@@ -201,7 +206,7 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		String content = response.getContentAsString();
-		assertEquals("Planned", content);
+		assertThat(content).isEqualTo("Planned");
 	}
 
 	@Test
@@ -220,18 +225,18 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		Message<?> message = channel.receive(0);
-		assertNotNull(message);
-		assertNotNull(message.getPayload());
-		assertEquals(LinkedMultiValueMap.class, message.getPayload().getClass());
+		assertThat(message).isNotNull();
+		assertThat(message.getPayload()).isNotNull();
+		assertThat(message.getPayload().getClass()).isEqualTo(LinkedMultiValueMap.class);
 		@SuppressWarnings("unchecked")
 		LinkedMultiValueMap<String, String> map = (LinkedMultiValueMap<String, String>) message.getPayload();
 		List<String> fooValues = map.get("foo");
 		List<String> barValues = map.get("bar");
-		assertEquals(1, fooValues.size());
-		assertEquals("123", fooValues.get(0));
-		assertEquals(2, barValues.size());
-		assertEquals("456", barValues.get(0));
-		assertEquals("789", barValues.get(1));
+		assertThat(fooValues.size()).isEqualTo(1);
+		assertThat(fooValues.get(0)).isEqualTo("123");
+		assertThat(barValues.size()).isEqualTo(2);
+		assertThat(barValues.get(0)).isEqualTo("456");
+		assertThat(barValues.get(1)).isEqualTo("789");
 	}
 
 	@Test
@@ -242,7 +247,7 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		gateway.setRequestPayloadTypeClass(TestBean.class);
 		gateway.setRequestChannel(channel);
 
-		List<HttpMessageConverter<?>> converters = new ArrayList<HttpMessageConverter<?>>();
+		List<HttpMessageConverter<?>> converters = new ArrayList<>();
 		converters.add(new SerializingHttpMessageConverter());
 		gateway.setMessageConverters(converters);
 		gateway.afterPropertiesSet();
@@ -258,14 +263,14 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		byte[] bytes = response.getContentAsByteArray();
-		assertNotNull(bytes);
+		assertThat(bytes).isNotNull();
 		Message<?> message = channel.receive(0);
-		assertNotNull(message);
-		assertNotNull(message.getPayload());
-		assertEquals(TestBean.class, message.getPayload().getClass());
+		assertThat(message).isNotNull();
+		assertThat(message.getPayload()).isNotNull();
+		assertThat(message.getPayload().getClass()).isEqualTo(TestBean.class);
 		TestBean result = (TestBean) message.getPayload();
-		assertEquals("T. Bean", result.name);
-		assertEquals(84, result.age);
+		assertThat(result.name).isEqualTo("T. Bean");
+		assertThat(result.age).isEqualTo(84);
 	}
 
 	@Test
@@ -273,6 +278,7 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 
 		final DirectChannel requestChannel = new DirectChannel();
 		requestChannel.subscribe(new AbstractReplyProducingMessageHandler() {
+
 			@Override
 			protected Object handleRequestMessage(Message<?> requestMessage) {
 				return MessageBuilder.withPayload("Cartman".getBytes())
@@ -282,13 +288,13 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 
 		});
 
-		final List<MediaType> supportedMediaTypes = new ArrayList<MediaType>();
+		final List<MediaType> supportedMediaTypes = new ArrayList<>();
 		supportedMediaTypes.add(MediaType.TEXT_HTML);
 
 		final ByteArrayHttpMessageConverter messageConverter = new ByteArrayHttpMessageConverter();
 		messageConverter.setSupportedMediaTypes(supportedMediaTypes);
 
-		final List<HttpMessageConverter<?>> messageConverters = new ArrayList<HttpMessageConverter<?>>();
+		final List<HttpMessageConverter<?>> messageConverters = new ArrayList<>();
 		messageConverters.add(messageConverter);
 
 		final HttpRequestHandlingMessagingGateway gateway = new HttpRequestHandlingMessagingGateway(true);
@@ -304,13 +310,14 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		final ContentTypeCheckingMockHttpServletResponse response = new ContentTypeCheckingMockHttpServletResponse();
 		gateway.handleRequest(request, response);
 
-		assertEquals("Cartman", response.getContentAsString());
+		assertThat(response.getContentAsString()).isEqualTo("Cartman");
 
 		/* Before fixing INT2680, 2 content type headers were being written. */
 		final List<String> contentTypes = response.getContentTypeList();
 
-		assertEquals("Exptecting only 1 content type being set.", Integer.valueOf(1), Integer.valueOf(contentTypes.size()));
-		assertEquals("text/plain", contentTypes.get(0));
+		assertThat(Integer.valueOf(contentTypes.size())).as("Expecting only 1 content type being set.")
+				.isEqualTo(Integer.valueOf(1));
+		assertThat(contentTypes.get(0)).isEqualTo("text/plain");
 	}
 
 	@Test
@@ -327,8 +334,8 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		Message<?> message = requestChannel.receive(0);
-		assertNotNull(message);
-		assertEquals(500, response.getStatus());
+		assertThat(message).isNotNull();
+		assertThat(response.getStatus()).isEqualTo(500);
 	}
 
 	@Test
@@ -347,8 +354,8 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		Message<?> message = requestChannel.receive(0);
-		assertNotNull(message);
-		assertEquals(501, response.getStatus());
+		assertThat(message).isNotNull();
+		assertThat(response.getStatus()).isEqualTo(501);
 	}
 
 	@Test
@@ -363,8 +370,8 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 
 			@Override
 			protected Object handleRequestMessage(Message<?> requestMessage) {
-				return new GenericMessage<String>("foo",
-						Collections.<String, Object>singletonMap(HttpHeaders.STATUS_CODE, HttpStatus.GATEWAY_TIMEOUT));
+				return new GenericMessage<>("foo",
+						Collections.singletonMap(HttpHeaders.STATUS_CODE, HttpStatus.GATEWAY_TIMEOUT));
 			}
 
 		});
@@ -377,8 +384,8 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		Message<?> message = requestChannel.receive(0);
-		assertNotNull(message);
-		assertEquals(504, response.getStatus());
+		assertThat(message).isNotNull();
+		assertThat(response.getStatus()).isEqualTo(504);
 	}
 
 	@Test
@@ -399,16 +406,36 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		MockHttpServletResponse response = new MockHttpServletResponse();
 		gateway.handleRequest(request, response);
 		Message<?> message = requestChannel.receive(0);
-		assertNotNull(message);
-		assertEquals(501, response.getStatus());
-		assertThat(response.getContentAsString(), Matchers.containsString("from error channel"));
+		assertThat(message).isNotNull();
+		assertThat(response.getStatus()).isEqualTo(501);
+		assertThat(response.getContentAsString()).contains("from error channel");
 	}
 
 
+	@Test
+	public void testMultipart() throws Exception {
+		HttpRequestHandlingMessagingGateway gateway = new HttpRequestHandlingMessagingGateway(false);
+		gateway.setBeanFactory(mock(BeanFactory.class));
+		MultipartResolver multipartResolver = mock(MultipartResolver.class);
+		gateway.setMultipartResolver(multipartResolver);
+		gateway.setRequestChannel(new NullChannel());
+		gateway.setRequestPayloadTypeClass(String.class);
+		gateway.afterPropertiesSet();
+		gateway.start();
+
+		MockHttpServletRequest request = new MockHttpServletRequest();
+		request.setMethod("POST");
+		request.setContentType("multipart/form-data");
+		request.setContent("hello".getBytes());
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		gateway.handleRequest(request, response);
+
+		verify(multipartResolver).isMultipart(any(HttpServletRequest.class));
+	}
 
 	private class ContentTypeCheckingMockHttpServletResponse extends MockHttpServletResponse {
 
-		private final List<String> contentTypeList = new ArrayList<String>();
+		private final List<String> contentTypeList = new ArrayList<>();
 
 		@Override
 		public void addHeader(String name, String value) {
@@ -433,8 +460,9 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		}
 
 		@Override
-		protected Exception readInternal(Class<? extends Exception> clazz, HttpInputMessage inputMessage) throws IOException,
-				HttpMessageNotReadableException {
+		protected Exception readInternal(Class<? extends Exception> clazz, HttpInputMessage inputMessage)
+				throws HttpMessageNotReadableException {
+
 			return null;
 		}
 
@@ -444,11 +472,12 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		}
 
 		@Override
-		protected void writeInternal(Exception t, HttpOutputMessage outputMessage) throws IOException, HttpMessageNotWritableException {
+		protected void writeInternal(Exception t, HttpOutputMessage outputMessage)
+				throws IOException, HttpMessageNotWritableException {
 			new PrintWriter(outputMessage.getBody()).append(t.getCause().getMessage()).flush();
 		}
-	}
 
+	}
 
 
 	@SuppressWarnings("serial")
@@ -465,6 +494,7 @@ public class HttpRequestHandlingMessagingGatewayTests extends AbstractHttpInboun
 		public void setAge(int age) {
 			this.age = age * 2;
 		}
+
 	}
 
 }

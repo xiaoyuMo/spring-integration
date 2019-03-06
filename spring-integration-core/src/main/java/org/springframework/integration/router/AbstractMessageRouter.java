@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,10 @@
 package org.springframework.integration.router;
 
 import java.util.Collection;
+import java.util.UUID;
 
 import org.springframework.core.convert.ConversionService;
 import org.springframework.core.convert.support.DefaultConversionService;
-import org.springframework.integration.channel.NullChannel;
 import org.springframework.integration.core.MessagingTemplate;
 import org.springframework.integration.handler.AbstractMessageHandler;
 import org.springframework.integration.support.management.IntegrationManagedResource;
@@ -62,7 +62,8 @@ public abstract class AbstractMessageRouter extends AbstractMessageHandler imple
 	 * resolution fails to return any channels, the router will throw an
 	 * {@link MessageDeliveryException}.
 	 * <p>
-	 * If messages shall be ignored (dropped) instead, please provide a {@link NullChannel}.
+	 * If messages shall be ignored (dropped) instead, please provide a
+	 * {@link org.springframework.integration.channel.NullChannel}.
 	 * @param defaultOutputChannel The default output channel.
 	 */
 	public void setDefaultOutputChannel(MessageChannel defaultOutputChannel) {
@@ -137,18 +138,16 @@ public abstract class AbstractMessageRouter extends AbstractMessageHandler imple
 	}
 
 	protected ConversionService getRequiredConversionService() {
-		if (this.getConversionService() == null) {
-			synchronized (this) {
-				if (getConversionService() == null) {
-					setConversionService(DefaultConversionService.getSharedInstance());
-				}
-			}
+		ConversionService conversionService = getConversionService();
+		if (conversionService == null) {
+			conversionService = DefaultConversionService.getSharedInstance();
+			setConversionService(conversionService);
 		}
-		return getConversionService();
+		return conversionService;
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		Assert.state(!(this.defaultOutputChannelName != null && this.defaultOutputChannel != null),
 				"'defaultOutputChannelName' and 'defaultOutputChannel' are mutually exclusive.");
@@ -173,24 +172,20 @@ public abstract class AbstractMessageRouter extends AbstractMessageHandler imple
 			int sequenceSize = results.size();
 			int sequenceNumber = 1;
 			for (MessageChannel channel : results) {
-				final Message<?> messageToSend =
-						!this.applySequence ? message : (this.getMessageBuilderFactory()
+				final Message<?> messageToSend;
+				if (!this.applySequence) {
+					messageToSend = message;
+				}
+				else {
+					UUID id = message.getHeaders().getId();
+					messageToSend = getMessageBuilderFactory()
 								.fromMessage(message)
-								.pushSequenceDetails(message.getHeaders().getId(), sequenceNumber++, sequenceSize)
-								.build());
+								.pushSequenceDetails(id == null ? generateId() : id,
+										sequenceNumber++, sequenceSize)
+								.build();
+				}
 				if (channel != null) {
-					try {
-						this.messagingTemplate.send(channel, messageToSend);
-						sent = true;
-					}
-					catch (MessagingException e) {
-						if (!this.ignoreSendFailures) {
-							throw e;
-						}
-						else if (this.logger.isDebugEnabled()) {
-							this.logger.debug(e);
-						}
-					}
+					sent |= doSend(channel, messageToSend);
 				}
 			}
 		}
@@ -203,6 +198,20 @@ public abstract class AbstractMessageRouter extends AbstractMessageHandler imple
 				throw new MessageDeliveryException(message, "No channel resolved by router '" + this.getComponentName()
 						+ "' and no 'defaultOutputChannel' defined.");
 			}
+		}
+	}
+
+	private boolean doSend(MessageChannel channel, final Message<?> messageToSend) {
+		try {
+			this.messagingTemplate.send(channel, messageToSend);
+			return true;
+		}
+		catch (MessagingException e) {
+			if (!this.ignoreSendFailures) {
+				throw e;
+			}
+			this.logger.debug("Send failure ignored", e);
+			return false;
 		}
 	}
 

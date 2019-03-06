@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2014 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,15 @@
 
 package org.springframework.integration.transformer;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.HashMap;
 import java.util.Map;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
-import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.context.support.StaticApplicationContext;
@@ -45,9 +44,23 @@ import org.springframework.messaging.Message;
  */
 public class MapToObjectTransformerTests {
 
+	private GenericApplicationContext context = TestUtils.createTestApplicationContext();
+
+	@Before
+	public void prepare() {
+		this.context.registerBeanDefinition(IntegrationUtils.INTEGRATION_CONVERSION_SERVICE_BEAN_NAME,
+				new RootBeanDefinition("org.springframework.integration.context.CustomConversionServiceFactoryBean"));
+		this.context.refresh();
+	}
+
+	@After
+	public void terDown() {
+		this.context.close();
+	}
+
 	@Test
 	public void testMapToObjectTransformation() {
-		Map<String, Object> map = new HashMap<String, Object>();
+		Map<String, Object> map = new HashMap<>();
 		map.put("fname", "Justin");
 		map.put("lname", "Case");
 		Address address = new Address();
@@ -57,20 +70,20 @@ public class MapToObjectTransformerTests {
 		Message<?> message = MessageBuilder.withPayload(map).build();
 
 		MapToObjectTransformer transformer = new MapToObjectTransformer(Person.class);
-		transformer.setBeanFactory(this.getBeanFactory());
+		transformer.setBeanFactory(this.context);
 		Message<?> newMessage = transformer.transform(message);
 		Person person = (Person) newMessage.getPayload();
-		assertNotNull(person);
-		assertEquals("Justin", person.getFname());
-		assertEquals("Case", person.getLname());
-		assertNull(person.getSsn());
-		assertNotNull(person.getAddress());
-		assertEquals("1123 Main st", person.getAddress().getStreet());
+		assertThat(person).isNotNull();
+		assertThat(person.getFname()).isEqualTo("Justin");
+		assertThat(person.getLname()).isEqualTo("Case");
+		assertThat(person.getSsn()).isNull();
+		assertThat(person.getAddress()).isNotNull();
+		assertThat(person.getAddress().getStreet()).isEqualTo("1123 Main st");
 	}
 
 	@Test
 	public void testMapToObjectTransformationWithPrototype() {
-		Map<String, Object> map = new HashMap<String, Object>();
+		Map<String, Object> map = new HashMap<>();
 		map.put("fname", "Justin");
 		map.put("lname", "Case");
 		Address address = new Address();
@@ -84,18 +97,18 @@ public class MapToObjectTransformerTests {
 		transformer.setBeanFactory(ac.getBeanFactory());
 		Message<?> newMessage = transformer.transform(message);
 		Person person = (Person) newMessage.getPayload();
-		assertNotNull(person);
-		assertEquals("Justin", person.getFname());
-		assertEquals("Case", person.getLname());
-		assertNull(person.getSsn());
-		assertNotNull(person.getAddress());
-		assertEquals("1123 Main st", person.getAddress().getStreet());
+		assertThat(person).isNotNull();
+		assertThat(person.getFname()).isEqualTo("Justin");
+		assertThat(person.getLname()).isEqualTo("Case");
+		assertThat(person.getSsn()).isNull();
+		assertThat(person.getAddress()).isNotNull();
+		assertThat(person.getAddress().getStreet()).isEqualTo("1123 Main st");
 		ac.close();
 	}
 
 	@Test
 	public void testMapToObjectTransformationWithConversionService() {
-		Map<String, Object> map = new HashMap<String, Object>();
+		Map<String, Object> map = new HashMap<>();
 		map.put("fname", "Justin");
 		map.put("lname", "Case");
 		map.put("address", "1123 Main st");
@@ -103,27 +116,19 @@ public class MapToObjectTransformerTests {
 		Message<?> message = MessageBuilder.withPayload(map).build();
 
 		MapToObjectTransformer transformer = new MapToObjectTransformer(Person.class);
-		BeanFactory beanFactory = this.getBeanFactory();
 		ConverterRegistry conversionService =
-				beanFactory.getBean(IntegrationUtils.INTEGRATION_CONVERSION_SERVICE_BEAN_NAME, ConverterRegistry.class);
+				this.context.getBean(IntegrationUtils.INTEGRATION_CONVERSION_SERVICE_BEAN_NAME,
+						ConverterRegistry.class);
 		conversionService.addConverter(new StringToAddressConverter());
-		transformer.setBeanFactory(beanFactory);
+		transformer.setBeanFactory(this.context);
 
 		Message<?> newMessage = transformer.transform(message);
 		Person person = (Person) newMessage.getPayload();
-		assertNotNull(person);
-		assertEquals("Justin", person.getFname());
-		assertEquals("Case", person.getLname());
-		assertNotNull(person.getAddress());
-		assertEquals("1123 Main st", person.getAddress().getStreet());
-	}
-
-	private BeanFactory getBeanFactory() {
-		GenericApplicationContext ctx = TestUtils.createTestApplicationContext();
-		ctx.registerBeanDefinition(IntegrationUtils.INTEGRATION_CONVERSION_SERVICE_BEAN_NAME,
-				new RootBeanDefinition("org.springframework.integration.context.CustomConversionServiceFactoryBean"));
-		ctx.refresh();
-		return ctx;
+		assertThat(person).isNotNull();
+		assertThat(person.getFname()).isEqualTo("Justin");
+		assertThat(person.getLname()).isEqualTo("Case");
+		assertThat(person.getAddress()).isNotNull();
+		assertThat(person.getAddress().getStreet()).isEqualTo("1123 Main st");
 	}
 
 	public static class Person {

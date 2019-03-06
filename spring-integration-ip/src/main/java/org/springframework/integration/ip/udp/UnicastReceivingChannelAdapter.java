@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import java.util.regex.Pattern;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.integration.ip.AbstractInternetProtocolReceivingChannelAdapter;
 import org.springframework.integration.ip.IpHeaders;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.messaging.MessagingException;
@@ -139,14 +140,18 @@ public class UnicastReceivingChannelAdapter extends AbstractInternetProtocolRece
 				throw new MessagingException("failed to receive DatagramPacket", e);
 			}
 		}
-		this.setListening(false);
+		setListening(false);
 	}
 
 	protected void sendAck(Message<byte[]> message) {
 		MessageHeaders headers = message.getHeaders();
 		Object id = headers.get(IpHeaders.ACK_ID);
+		if (id == null) {
+			logger.error("No " + IpHeaders.ACK_ID + " header; cannot send ack");
+			return;
+		}
 		byte[] ack = id.toString().getBytes();
-		String ackAddress = ((String) headers.get(IpHeaders.ACK_ADDRESS)).trim();
+		String ackAddress = (headers.get(IpHeaders.ACK_ADDRESS, String.class)).trim(); // NOSONAR caller checks header
 		Matcher mat = addressPattern.matcher(ackAddress);
 		if (!mat.matches()) {
 			throw new MessagingException(message,
@@ -203,15 +208,19 @@ public class UnicastReceivingChannelAdapter extends AbstractInternetProtocolRece
 			if (message.getHeaders().containsKey(IpHeaders.ACK_ADDRESS)) {
 				sendAck(message);
 			}
-			sendMessage(message);
+			try {
+				sendMessage(message);
+			}
+			catch (Exception e) {
+				this.logger.error("Failed to send message " + message, e);
+			}
 		}
 	}
 
 	protected DatagramPacket receive() throws Exception {
-		DatagramSocket socket = this.getSocket();
 		final byte[] buffer = new byte[this.getReceiveBufferSize()];
 		DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-		socket.receive(packet);
+		getSocket().receive(packet);
 		return packet;
 	}
 
@@ -222,6 +231,7 @@ public class UnicastReceivingChannelAdapter extends AbstractInternetProtocolRece
 		this.socket = socket;
 	}
 
+	@Nullable
 	protected DatagramSocket getTheSocket() {
 		return this.socket;
 	}
@@ -229,18 +239,18 @@ public class UnicastReceivingChannelAdapter extends AbstractInternetProtocolRece
 	public synchronized DatagramSocket getSocket() {
 		if (this.socket == null) {
 			try {
-				DatagramSocket socket = null;
+				DatagramSocket datagramSocket = null;
 				String localAddress = this.getLocalAddress();
 				int port = super.getPort();
 				if (localAddress == null) {
-					socket = port == 0 ? new DatagramSocket() : new DatagramSocket(port);
+					datagramSocket = port == 0 ? new DatagramSocket() : new DatagramSocket(port);
 				}
 				else {
 					InetAddress whichNic = InetAddress.getByName(localAddress);
-					socket = new DatagramSocket(new InetSocketAddress(whichNic, port));
+					datagramSocket = new DatagramSocket(new InetSocketAddress(whichNic, port));
 				}
-				setSocketAttributes(socket);
-				this.socket = socket;
+				setSocketAttributes(datagramSocket);
+				this.socket = datagramSocket;
 			}
 			catch (IOException e) {
 				throw new MessagingException("failed to create DatagramSocket", e);
@@ -268,9 +278,9 @@ public class UnicastReceivingChannelAdapter extends AbstractInternetProtocolRece
 	protected void doStop() {
 		super.doStop();
 		try {
-			DatagramSocket socket = this.socket;
+			DatagramSocket datagramSocket = this.socket;
 			this.socket = null;
-			socket.close();
+			datagramSocket.close();
 		}
 		catch (Exception e) {
 			// ignore

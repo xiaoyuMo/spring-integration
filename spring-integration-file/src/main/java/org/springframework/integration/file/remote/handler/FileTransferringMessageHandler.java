@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
 package org.springframework.integration.file.remote.handler;
 
 import org.springframework.expression.Expression;
-import org.springframework.integration.file.DefaultFileNameGenerator;
 import org.springframework.integration.file.FileNameGenerator;
 import org.springframework.integration.file.remote.RemoteFileTemplate;
 import org.springframework.integration.file.remote.session.SessionFactory;
@@ -35,12 +34,13 @@ import org.springframework.util.Assert;
  * @author Oleg Zhurakousky
  * @author David Turanski
  * @author Gary Russell
+ * @author Artem Bilan
  *
  * @since 2.0
  */
 public class FileTransferringMessageHandler<F> extends AbstractMessageHandler {
 
-	protected final RemoteFileTemplate<F> remoteFileTemplate;
+	protected final RemoteFileTemplate<F> remoteFileTemplate; // NOSONAR
 
 	private final FileExistsMode mode;
 
@@ -138,8 +138,9 @@ public class FileTransferringMessageHandler<F> extends AbstractMessageHandler {
 	}
 
 	/**
-	 * Set the file name generator used to generate the remote filename to be used when transferring
-	 * files to the remote system. Default {@link DefaultFileNameGenerator}.
+	 * Set the file name generator used to generate the remote filename to be used when
+	 * transferring files to the remote system. Default
+	 * {@link org.springframework.integration.file.DefaultFileNameGenerator}.
 	 * @param fileNameGenerator the file name generator.
 	 * @see RemoteFileTemplate#setFileNameGenerator(FileNameGenerator)
 	 */
@@ -175,7 +176,7 @@ public class FileTransferringMessageHandler<F> extends AbstractMessageHandler {
 	 */
 	public void setChmodOctal(String chmod) {
 		Assert.notNull(chmod, "'chmod' cannot be null");
-		setChmod(Integer.parseInt(chmod, 8));
+		setChmod(Integer.parseInt(chmod, 8)); // NOSONAR
 	}
 
 	/**
@@ -194,13 +195,13 @@ public class FileTransferringMessageHandler<F> extends AbstractMessageHandler {
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		this.remoteFileTemplate.setBeanFactory(this.getBeanFactory());
 		this.remoteFileTemplate.afterPropertiesSet();
 	}
 
 	@Override
-	protected void handleMessageInternal(Message<?> message) throws Exception {
+	protected void handleMessageInternal(Message<?> message) {
 		String path = this.remoteFileTemplate.send(message, this.mode);
 		if (this.chmod != null && isChmodCapable()) {
 			doChmod(this.remoteFileTemplate, path, this.chmod);

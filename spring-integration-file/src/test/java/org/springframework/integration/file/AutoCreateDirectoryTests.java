@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 
 package org.springframework.integration.file;
 
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.mockito.Mockito.mock;
 
 import java.io.File;
@@ -61,23 +62,25 @@ public class AutoCreateDirectoryTests {
 	}
 
 	@Test
-	public void autoCreateForInboundEnabledByDefault() throws Exception {
+	public void autoCreateForInboundEnabledByDefault() {
 		FileReadingMessageSource source = new FileReadingMessageSource();
 		source.setDirectory(new File(INBOUND_PATH));
 		source.setBeanFactory(mock(BeanFactory.class));
 		source.afterPropertiesSet();
 		source.start();
-		assertTrue(new File(INBOUND_PATH).exists());
+		assertThat(new File(INBOUND_PATH).exists()).isTrue();
+		source.stop();
 	}
 
-	@Test(expected = IllegalArgumentException.class)
-	public void autoCreateForInboundDisabled() throws Exception {
+	@Test
+	public void autoCreateForInboundDisabled() {
 		FileReadingMessageSource source = new FileReadingMessageSource();
 		source.setDirectory(new File(INBOUND_PATH));
 		source.setAutoCreateDirectory(false);
 		source.setBeanFactory(mock(BeanFactory.class));
 		source.afterPropertiesSet();
-		source.start();
+		assertThatIllegalArgumentException()
+				.isThrownBy(source::start);
 	}
 
 	@Test
@@ -86,7 +89,7 @@ public class AutoCreateDirectoryTests {
 				new File(OUTBOUND_PATH));
 		handler.setBeanFactory(mock(BeanFactory.class));
 		handler.afterPropertiesSet();
-		assertTrue(new File(OUTBOUND_PATH).exists());
+		assertThat(new File(OUTBOUND_PATH).exists()).isTrue();
 	}
 
 	@Test(expected = IllegalArgumentException.class)

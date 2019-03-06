@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,10 @@
 
 package org.springframework.integration.xml.config;
 
-import static org.hamcrest.Matchers.contains;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -37,12 +34,13 @@ import org.springframework.integration.endpoint.EventDrivenConsumer;
 import org.springframework.integration.support.MessageBuilder;
 import org.springframework.integration.support.SmartLifecycleRoleController;
 import org.springframework.integration.test.util.TestUtils;
+import org.springframework.integration.transformer.support.HeaderValueMessageProcessor;
+import org.springframework.integration.xml.transformer.support.XPathExpressionEvaluatingHeaderValueMessageProcessor;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.PollableChannel;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.util.MultiValueMap;
 
 /**
@@ -52,8 +50,7 @@ import org.springframework.util.MultiValueMap;
  *
  * @since 2.0
  */
-@ContextConfiguration
-@RunWith(SpringJUnit4ClassRunner.class)
+@RunWith(SpringRunner.class)
 @DirtiesContext
 public class XPathHeaderEnricherParserTests {
 
@@ -66,48 +63,49 @@ public class XPathHeaderEnricherParserTests {
 	@Autowired
 	private ApplicationContext context;
 
-	private final Message<?> message = MessageBuilder.withPayload("<person name='John Doe' age='42' married='true'/>").build();
+	private final Message<?> message =
+			MessageBuilder.withPayload("<person name='John Doe' age='42' married='true'/>").build();
 
 
 	@Test
-	public void testParse() throws Exception {
+	public void testParse() {
 		EventDrivenConsumer consumer = (EventDrivenConsumer) context.getBean("parseOnly");
-		assertEquals(2, TestUtils.getPropertyValue(consumer, "handler.order"));
-		assertEquals(123L, TestUtils.getPropertyValue(consumer, "handler.messagingTemplate.sendTimeout"));
-		assertEquals(-1, TestUtils.getPropertyValue(consumer, "phase"));
-		assertFalse(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class));
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.order")).isEqualTo(2);
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.messagingTemplate.sendTimeout")).isEqualTo(123L);
+		assertThat(TestUtils.getPropertyValue(consumer, "phase")).isEqualTo(-1);
+		assertThat(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class)).isFalse();
 		SmartLifecycleRoleController roleController = context.getBean(SmartLifecycleRoleController.class);
 		@SuppressWarnings("unchecked")
 		List<SmartLifecycle> list = (List<SmartLifecycle>) TestUtils.getPropertyValue(roleController, "lifecycles",
 				MultiValueMap.class).get("foo");
-		assertThat(list, contains((SmartLifecycle) consumer));
+		assertThat(list).containsExactly((SmartLifecycle) consumer);
 	}
 
 	@Test
 	public void stringResultByDefault() {
 		Message<?> result = this.getResultMessage();
-		assertEquals("John Doe", result.getHeaders().get("name"));
+		assertThat(result.getHeaders().get("name")).isEqualTo("John Doe");
 	}
 
 	@Test
 	public void numberResult() {
 		Message<?> result = this.getResultMessage();
-		assertEquals(42, result.getHeaders().get("age"));
+		assertThat(result.getHeaders().get("age")).isEqualTo(42);
 	}
 
 	@Test
 	public void booleanResult() {
 		Message<?> result = this.getResultMessage();
-		assertEquals(Boolean.TRUE, result.getHeaders().get("married"));
+		assertThat(result.getHeaders().get("married")).isEqualTo(Boolean.TRUE);
 	}
 
 	@Test
 	public void nodeResult() {
 		Message<?> result = this.getResultMessage();
 		Object header = result.getHeaders().get("node-test");
-		assertTrue(header instanceof Node);
+		assertThat(header instanceof Node).isTrue();
 		Node node = (Node) header;
-		assertEquals("42", node.getTextContent());
+		assertThat(node.getTextContent()).isEqualTo("42");
 	}
 
 	@Test
@@ -115,35 +113,37 @@ public class XPathHeaderEnricherParserTests {
 	public void nodeListResult() {
 		Message<?> result = this.getResultMessage();
 		Object header = result.getHeaders().get("node-list-test");
-		assertTrue(List.class.isAssignableFrom(header.getClass()));
+		assertThat(header).isInstanceOf(List.class);
 		List<Node> nodeList = (List<Node>) header;
-		assertEquals(3, nodeList.size());
+		assertThat(nodeList).isNotNull();
+		assertThat(nodeList.size()).isEqualTo(3);
 	}
 
 	@Test
 	public void expressionRef() {
-		Message<?> result = this.getResultMessage();
-		assertEquals(new Double(84), result.getHeaders().get("ref-test"));
+		Message<?> result = getResultMessage();
+		assertThat(result.getHeaders().get("ref-test")).isEqualTo(84d);
 	}
 
 	@Test
-	public void defaultOverwrite() {
-		assertEquals(false, this.getEnricherProperty("defaultHeaderEnricher", "defaultOverwrite"));
+	public void testDefaultHeaderEnricher() {
+		assertThat(getEnricherProperty("defaultHeaderEnricher", "defaultOverwrite")).isFalse();
+		assertThat(getEnricherProperty("defaultHeaderEnricher", "shouldSkipNulls")).isTrue();
 	}
 
 	@Test
-	public void defaultShouldSkipNulls() {
-		assertEquals(true, this.getEnricherProperty("defaultHeaderEnricher", "shouldSkipNulls"));
-	}
-
-	@Test
-	public void customOverwrite() {
-		assertEquals(true, this.getEnricherProperty("customHeaderEnricher", "defaultOverwrite"));
-	}
-
-	@Test
-	public void customShouldSkipNulls() {
-		assertEquals(false, this.getEnricherProperty("customHeaderEnricher", "shouldSkipNulls"));
+	@SuppressWarnings("unchecked")
+	public void testCustomHeaderEnricher() {
+		assertThat(getEnricherProperty("customHeaderEnricher", "defaultOverwrite")).isTrue();
+		assertThat(getEnricherProperty("customHeaderEnricher", "shouldSkipNulls")).isFalse();
+		Map<String, ? extends HeaderValueMessageProcessor<?>> headersToAdd =
+				TestUtils.getPropertyValue(this.context.getBean("customHeaderEnricher"),
+						"handler.transformer.headersToAdd", Map.class);
+		HeaderValueMessageProcessor<?> headerValueMessageProcessor = headersToAdd.get("foo");
+		assertThat(headerValueMessageProcessor)
+				.isInstanceOf(XPathExpressionEvaluatingHeaderValueMessageProcessor.class);
+		assertThat(TestUtils.getPropertyValue(headerValueMessageProcessor, "converter"))
+				.isSameAs(this.context.getBean("xmlPayloadConverter"));
 	}
 
 	@Test
@@ -155,7 +155,8 @@ public class XPathHeaderEnricherParserTests {
 				.build();
 		this.context.getBean("defaultInput", MessageChannel.class).send(request);
 		Message<?> reply = replyChannel.receive();
-		assertEquals("John Doe", reply.getHeaders().get("foo"));
+		assertThat(reply).isNotNull();
+		assertThat(reply.getHeaders().get("foo")).isEqualTo("John Doe");
 	}
 
 	@Test
@@ -167,7 +168,8 @@ public class XPathHeaderEnricherParserTests {
 				.build();
 		this.context.getBean("customInput", MessageChannel.class).send(request);
 		Message<?> reply = replyChannel.receive();
-		assertEquals("bar", reply.getHeaders().get("foo"));
+		assertThat(reply).isNotNull();
+		assertThat(reply.getHeaders().get("foo")).isEqualTo("bar");
 	}
 
 
@@ -180,7 +182,7 @@ public class XPathHeaderEnricherParserTests {
 		Object endpoint = this.context.getBean(beanName);
 		Object handler = new DirectFieldAccessor(endpoint).getPropertyValue("handler");
 		Object enricher = new DirectFieldAccessor(handler).getPropertyValue("transformer");
-		return ((Boolean) new DirectFieldAccessor(enricher).getPropertyValue(propertyName)).booleanValue();
+		return (boolean) new DirectFieldAccessor(enricher).getPropertyValue(propertyName);
 	}
 
 }

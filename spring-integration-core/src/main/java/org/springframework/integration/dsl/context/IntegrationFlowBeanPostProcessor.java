@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 
 package org.springframework.integration.dsl.context;
 
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -26,7 +25,6 @@ import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.Aware;
 import org.springframework.beans.factory.BeanClassLoaderAware;
 import org.springframework.beans.factory.BeanCreationNotAllowedException;
-import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.BeanFactoryUtils;
 import org.springframework.beans.factory.BeanNameAware;
@@ -34,10 +32,12 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinitionCustomizer;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.EmbeddedValueResolver;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.support.BeanDefinitionOverrideException;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
@@ -52,6 +52,7 @@ import org.springframework.core.io.DescriptiveResource;
 import org.springframework.integration.channel.AbstractMessageChannel;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.channel.FixedSubscriberChannel;
+import org.springframework.integration.channel.NullChannel;
 import org.springframework.integration.config.ConsumerEndpointFactoryBean;
 import org.springframework.integration.config.IntegrationConfigUtils;
 import org.springframework.integration.config.SourcePollingChannelAdapterFactoryBean;
@@ -75,9 +76,9 @@ import org.springframework.util.StringUtils;
 import org.springframework.util.StringValueResolver;
 
 /**
- * A {@link BeanPostProcessor} to parse {@link IntegrationFlow} beans and
- * register their components as beans in the provided {@link BeanFactory},
- * if necessary.
+ * A {@link BeanPostProcessor} to parse {@link IntegrationFlow} beans and register their
+ * components as beans in the provided
+ * {@link org.springframework.beans.factory.BeanFactory}, if necessary.
  *
  * @author Artem Bilan
  * @author Gary Russell
@@ -163,7 +164,7 @@ public class IntegrationFlowBeanPostProcessor
 					id = flowNamePrefix + id;
 				}
 
-				if (noBeanPresentForComponent(messageHandler)) {
+				if (noBeanPresentForComponent(messageHandler, flowBeanName)) {
 					String handlerBeanName = generateBeanName(messageHandler, flowNamePrefix);
 
 					registerComponent(messageHandler, handlerBeanName, flowBeanName);
@@ -174,9 +175,9 @@ public class IntegrationFlowBeanPostProcessor
 				targetIntegrationComponents.put(endpoint, id);
 			}
 			else {
-				if (noBeanPresentForComponent(component)) {
-					if (component instanceof AbstractMessageChannel) {
-						String channelBeanName = ((AbstractMessageChannel) component).getComponentName();
+				if (noBeanPresentForComponent(component, flowBeanName)) {
+					if (component instanceof AbstractMessageChannel || component instanceof NullChannel) {
+						String channelBeanName = ((NamedComponent) component).getComponentName();
 						if (channelBeanName == null) {
 							channelBeanName = entry.getValue();
 							if (channelBeanName == null) {
@@ -211,7 +212,7 @@ public class IntegrationFlowBeanPostProcessor
 						if (!CollectionUtils.isEmpty(componentsToRegister)) {
 							componentsToRegister.entrySet()
 									.stream()
-									.filter(o -> noBeanPresentForComponent(o.getKey()))
+									.filter(o -> noBeanPresentForComponent(o.getKey(), flowBeanName))
 									.forEach(o ->
 											registerComponent(o.getKey(),
 													generateBeanName(o.getKey(), flowNamePrefix, o.getValue(),
@@ -231,7 +232,7 @@ public class IntegrationFlowBeanPostProcessor
 						targetIntegrationComponents.put(pollingChannelAdapterFactoryBean, id);
 
 						MessageSource<?> messageSource = spec.get().getT2();
-						if (noBeanPresentForComponent(messageSource)) {
+						if (noBeanPresentForComponent(messageSource, flowBeanName)) {
 							String messageSourceId = id + ".source";
 							if (messageSource instanceof NamedComponent
 									&& ((NamedComponent) messageSource).getComponentName() != null) {
@@ -263,7 +264,7 @@ public class IntegrationFlowBeanPostProcessor
 						registerComponent(gateway, gatewayId, flowBeanName,
 								beanDefinition -> {
 									((AbstractBeanDefinition) beanDefinition)
-											.setSource(new DescriptiveResource(gateway.getObjectType().getName()));
+											.setSource(new DescriptiveResource("" + gateway.getObjectType()));
 								});
 
 						targetIntegrationComponents.put(component, gatewayId);
@@ -277,7 +278,14 @@ public class IntegrationFlowBeanPostProcessor
 					}
 				}
 				else {
-					targetIntegrationComponents.put(entry.getKey(), entry.getValue());
+					Object componentToUse = entry.getKey();
+					String beanNameToUse = entry.getValue();
+					if (StringUtils.hasText(beanNameToUse) &&
+							ConfigurableBeanFactory.SCOPE_PROTOTYPE.equals(
+									this.beanFactory.getBeanDefinition(beanNameToUse).getScope())) {
+						this.beanFactory.initializeBean(componentToUse, beanNameToUse);
+					}
+					targetIntegrationComponents.put(component, beanNameToUse);
 				}
 			}
 		}
@@ -337,7 +345,7 @@ public class IntegrationFlowBeanPostProcessor
 
 				componentsToRegister.entrySet()
 						.stream()
-						.filter(component -> noBeanPresentForComponent(component.getKey()))
+						.filter(component -> noBeanPresentForComponent(component.getKey(), beanName))
 						.forEach(component ->
 								registerComponent(component.getKey(),
 										generateBeanName(component.getKey(), component.getValue())));
@@ -351,8 +359,8 @@ public class IntegrationFlowBeanPostProcessor
 			if (bean instanceof BeanNameAware) {
 				((BeanNameAware) bean).setBeanName(beanName);
 			}
-			if (bean instanceof BeanClassLoaderAware) {
-				((BeanClassLoaderAware) bean).setBeanClassLoader(this.beanFactory.getBeanClassLoader());
+			if (bean instanceof BeanClassLoaderAware && this.beanFactory.getBeanClassLoader() != null) {
+				((BeanClassLoaderAware) bean).setBeanClassLoader(this.beanFactory.getBeanClassLoader()); // NOSONAR
 			}
 			if (bean instanceof BeanFactoryAware) {
 				((BeanFactoryAware) bean).setBeanFactory(this.beanFactory);
@@ -378,17 +386,36 @@ public class IntegrationFlowBeanPostProcessor
 		}
 	}
 
-	private boolean noBeanPresentForComponent(Object instance) {
+	@SuppressWarnings("unchecked")
+	private boolean noBeanPresentForComponent(Object instance, String parentBeanName) {
 		if (instance instanceof NamedComponent) {
-			String beanName = ((NamedComponent) instance).getComponentName();
+			String beanName = ((NamedComponent) instance).getBeanName();
 			if (beanName != null) {
-				return !this.beanFactory.containsBean(beanName);
+				if (this.beanFactory.containsBean(beanName)) {
+					BeanDefinition existingBeanDefinition = this.beanFactory.getBeanDefinition(beanName);
+					if (!ConfigurableBeanFactory.SCOPE_PROTOTYPE.equals(existingBeanDefinition.getScope())
+							&& !instance.equals(this.beanFactory.getBean(beanName))) {
+
+						AbstractBeanDefinition beanDefinition =
+								BeanDefinitionBuilder.genericBeanDefinition((Class<Object>) instance.getClass(),
+										() -> instance)
+										.getBeanDefinition();
+						beanDefinition.setResourceDescription("the '" + parentBeanName + "' bean definition");
+						throw new BeanDefinitionOverrideException(beanName, beanDefinition, existingBeanDefinition);
+					}
+					else {
+						return false;
+					}
+				}
+				else {
+					return true;
+				}
 			}
 		}
 
-		Collection<?> beans = this.beanFactory.getBeansOfType(instance.getClass(), false, false).values();
-
-		return !beans.contains(instance);
+		return !this.beanFactory.getBeansOfType(instance.getClass(), false, false)
+				.values()
+				.contains(instance);
 	}
 
 	private void registerComponent(Object component, String beanName) {
@@ -418,10 +445,11 @@ public class IntegrationFlowBeanPostProcessor
 	}
 
 	private String generateBeanName(Object instance, String prefix, String fallbackId, boolean useFlowIdAsPrefix) {
-		if (instance instanceof NamedComponent && ((NamedComponent) instance).getComponentName() != null) {
+		if (instance instanceof NamedComponent && ((NamedComponent) instance).getBeanName() != null) {
+			String beanName = ((NamedComponent) instance).getBeanName();
 			return useFlowIdAsPrefix
-					? prefix + ((NamedComponent) instance).getComponentName()
-					: ((NamedComponent) instance).getComponentName();
+					? prefix + beanName
+					: beanName;
 		}
 		else if (fallbackId != null) {
 			return useFlowIdAsPrefix

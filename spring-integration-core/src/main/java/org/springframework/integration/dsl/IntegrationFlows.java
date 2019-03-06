@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import org.springframework.integration.dsl.support.FixedSubscriberChannelPrototy
 import org.springframework.integration.dsl.support.MessageChannelReference;
 import org.springframework.integration.endpoint.MessageProducerSupport;
 import org.springframework.integration.endpoint.MethodInvokingMessageSource;
-import org.springframework.integration.endpoint.SourcePollingChannelAdapter;
 import org.springframework.integration.gateway.AnnotationGatewayProxyFactoryBean;
 import org.springframework.integration.gateway.GatewayProxyFactoryBean;
 import org.springframework.integration.gateway.MessagingGatewaySupport;
@@ -163,7 +162,8 @@ public final class IntegrationFlows {
 
 	/**
 	 * Provides {@link Supplier} as source of messages to the integration flow.
-	 * which will be triggered by a <b>provided</b> {@link SourcePollingChannelAdapter}.
+	 * which will be triggered by a <b>provided</b>
+	 * {@link org.springframework.integration.endpoint.SourcePollingChannelAdapter}.
 	 * @param messageSource the {@link Supplier} to populate.
 	 * @param endpointConfigurer the {@link Consumer} to provide more options for the
 	 * {@link org.springframework.integration.config.SourcePollingChannelAdapterFactoryBean}.
@@ -221,13 +221,16 @@ public final class IntegrationFlows {
 	 * @see SourcePollingChannelAdapterSpec
 	 */
 	public static IntegrationFlowBuilder from(MessageSource<?> messageSource,
-			Consumer<SourcePollingChannelAdapterSpec> endpointConfigurer) {
+			@Nullable Consumer<SourcePollingChannelAdapterSpec> endpointConfigurer) {
+
 		return from(messageSource, endpointConfigurer, null);
 	}
 
 	private static IntegrationFlowBuilder from(MessageSource<?> messageSource,
-			Consumer<SourcePollingChannelAdapterSpec> endpointConfigurer,
-			IntegrationFlowBuilder integrationFlowBuilder) {
+			@Nullable Consumer<SourcePollingChannelAdapterSpec> endpointConfigurer,
+			@Nullable IntegrationFlowBuilder integrationFlowBuilderArg) {
+
+		IntegrationFlowBuilder integrationFlowBuilder = integrationFlowBuilderArg;
 		SourcePollingChannelAdapterSpec spec = new SourcePollingChannelAdapterSpec(messageSource);
 		if (endpointConfigurer != null) {
 			endpointConfigurer.accept(spec);
@@ -262,7 +265,9 @@ public final class IntegrationFlows {
 	}
 
 	private static IntegrationFlowBuilder from(MessageProducerSupport messageProducer,
-			IntegrationFlowBuilder integrationFlowBuilder) {
+			@Nullable IntegrationFlowBuilder integrationFlowBuilderArg) {
+
+		IntegrationFlowBuilder integrationFlowBuilder = integrationFlowBuilderArg;
 		MessageChannel outputChannel = messageProducer.getOutputChannel();
 		if (outputChannel == null) {
 			outputChannel = new DirectChannel();
@@ -333,7 +338,9 @@ public final class IntegrationFlows {
 		GatewayProxyFactoryBean gatewayProxyFactoryBean = new AnnotationGatewayProxyFactoryBean(serviceInterface);
 
 		gatewayProxyFactoryBean.setDefaultRequestChannel(gatewayRequestChannel);
-		gatewayProxyFactoryBean.setBeanName(beanName);
+		if (beanName != null) {
+			gatewayProxyFactoryBean.setBeanName(beanName);
+		}
 
 		return from(gatewayRequestChannel)
 				.addComponent(gatewayProxyFactoryBean);
@@ -352,7 +359,9 @@ public final class IntegrationFlows {
 	}
 
 	private static IntegrationFlowBuilder from(MessagingGatewaySupport inboundGateway,
-			IntegrationFlowBuilder integrationFlowBuilder) {
+			@Nullable IntegrationFlowBuilder integrationFlowBuilderArg) {
+
+		IntegrationFlowBuilder integrationFlowBuilder = integrationFlowBuilderArg;
 		MessageChannel outputChannel = inboundGateway.getRequestChannel();
 		if (outputChannel == null) {
 			outputChannel = new DirectChannel();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,8 @@ import org.springframework.integration.core.MessageProducer;
 import org.springframework.integration.core.MessagingTemplate;
 import org.springframework.integration.routingslip.RoutingSlipRouteStrategy;
 import org.springframework.integration.support.AbstractIntegrationMessageBuilder;
+import org.springframework.integration.support.utils.IntegrationUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandlingException;
@@ -63,12 +65,14 @@ import reactor.core.publisher.Mono;
 public abstract class AbstractMessageProducingHandler extends AbstractMessageHandler
 		implements MessageProducer, HeaderPropagationAware {
 
-	protected final MessagingTemplate messagingTemplate = new MessagingTemplate();
+	protected final MessagingTemplate messagingTemplate = new MessagingTemplate(); // NOSONAR final
 
 	private boolean async;
 
+	@Nullable
 	private String outputChannelName;
 
+	@Nullable
 	private MessageChannel outputChannel;
 
 	private String[] notPropagatedHeaders;
@@ -90,6 +94,7 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 		this.outputChannel = outputChannel;
 	}
 
+	@Override
 	public void setOutputChannelName(String outputChannelName) {
 		Assert.hasText(outputChannelName, "'outputChannelName' must not be empty");
 		this.outputChannelName = outputChannelName; //NOSONAR (inconsistent sync)
@@ -192,7 +197,7 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		Assert.state(!(this.outputChannelName != null && this.outputChannel != null), //NOSONAR (inconsistent sync)
 				"'outputChannelName' and 'outputChannel' are mutually exclusive.");
@@ -203,14 +208,12 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 	}
 
 	@Override
+	@Nullable
 	public MessageChannel getOutputChannel() {
-		if (this.outputChannelName != null) {
-			synchronized (this) {
-				if (this.outputChannelName != null) {
-					this.outputChannel = getChannelResolver().resolveDestination(this.outputChannelName);
-					this.outputChannelName = null;
-				}
-			}
+		String channelName = this.outputChannelName;
+		if (channelName != null) {
+			this.outputChannel = getChannelResolver().resolveDestination(channelName);
+			this.outputChannelName = null;
 		}
 		return this.outputChannel;
 	}
@@ -235,9 +238,10 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 		return false;
 	}
 
-	protected void produceOutput(Object reply, final Message<?> requestMessage) {
+	protected void produceOutput(Object replyArg, final Message<?> requestMessage) {
 		final MessageHeaders requestHeaders = requestMessage.getHeaders();
 
+		Object reply = replyArg;
 		Object replyChannel = null;
 		if (getOutputChannel() == null) {
 			Map<?, ?> routingSlipHeader = requestHeaders.get(IntegrationMessageHeaderAccessor.ROUTING_SLIP, Map.class);
@@ -252,20 +256,7 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 				AtomicInteger routingSlipIndex = new AtomicInteger((Integer) value);
 				replyChannel = getOutputChannelFromRoutingSlip(reply, requestMessage, routingSlip, routingSlipIndex);
 				if (replyChannel != null) {
-					//TODO Migrate to the SF MessageBuilder
-					AbstractIntegrationMessageBuilder<?> builder = null;
-					if (reply instanceof Message) {
-						builder = this.getMessageBuilderFactory().fromMessage((Message<?>) reply);
-					}
-					else if (reply instanceof AbstractIntegrationMessageBuilder) {
-						builder = (AbstractIntegrationMessageBuilder<?>) reply;
-					}
-					else {
-						builder = this.getMessageBuilderFactory().withPayload(reply);
-					}
-					builder.setHeader(IntegrationMessageHeaderAccessor.ROUTING_SLIP,
-							Collections.singletonMap(routingSlip, routingSlipIndex.get()));
-					reply = builder;
+					reply = addRoutingSlipHeader(reply, routingSlip, routingSlipIndex);
 				}
 			}
 
@@ -276,55 +267,20 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 				}
 			}
 		}
+		doProduceOutput(requestMessage, requestHeaders, reply, replyChannel);
+	}
+
+	private void doProduceOutput(final Message<?> requestMessage, final MessageHeaders requestHeaders, Object reply,
+			Object replyChannel) {
 
 		if (this.async && (reply instanceof ListenableFuture<?> || reply instanceof Publisher<?>)) {
+			MessageChannel messageChannel = getOutputChannel();
 			if (reply instanceof ListenableFuture<?> ||
-					!(getOutputChannel() instanceof ReactiveStreamsSubscribableChannel)) {
-				ListenableFuture<?> future;
-				if (reply instanceof ListenableFuture<?>) {
-					future = (ListenableFuture<?>) reply;
-				}
-				else {
-					SettableListenableFuture<Object> settableListenableFuture = new SettableListenableFuture<>();
-
-					Mono.from((Publisher<?>) reply)
-							.subscribe(settableListenableFuture::set, settableListenableFuture::setException);
-
-					future = settableListenableFuture;
-				}
-
-				Object theReplyChannel = replyChannel;
-				future.addCallback(new ListenableFutureCallback<Object>() {
-
-					@Override
-					public void onSuccess(Object result) {
-						Message<?> replyMessage = null;
-						try {
-							replyMessage = createOutputMessage(result, requestHeaders);
-							sendOutput(replyMessage, theReplyChannel, false);
-						}
-						catch (Exception e) {
-							Exception exceptionToLogAndSend = e;
-							if (!(e instanceof MessagingException)) {
-								exceptionToLogAndSend = new MessageHandlingException(requestMessage, e);
-								if (replyMessage != null) {
-									exceptionToLogAndSend = new MessagingException(replyMessage, exceptionToLogAndSend);
-								}
-							}
-							logger.error("Failed to send async reply: " + result.toString(), exceptionToLogAndSend);
-							onFailure(exceptionToLogAndSend);
-						}
-					}
-
-					@Override
-					public void onFailure(Throwable ex) {
-						sendErrorMessage(requestMessage, ex);
-					}
-
-				});
+					!(messageChannel instanceof ReactiveStreamsSubscribableChannel)) {
+				asyncNonReactiveReply(requestMessage, reply, replyChannel);
 			}
 			else {
-				((ReactiveStreamsSubscribableChannel) getOutputChannel())
+				((ReactiveStreamsSubscribableChannel) messageChannel)
 						.subscribeTo(
 								Flux.from((Publisher<?>) reply)
 										.map(result -> createOutputMessage(result, requestHeaders)));
@@ -333,6 +289,43 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 		else {
 			sendOutput(createOutputMessage(reply, requestHeaders), replyChannel, false);
 		}
+	}
+
+	private AbstractIntegrationMessageBuilder<?> addRoutingSlipHeader(Object reply, List<?> routingSlip,
+			AtomicInteger routingSlipIndex) {
+
+		//TODO Migrate to the SF MessageBuilder
+		AbstractIntegrationMessageBuilder<?> builder = null;
+		if (reply instanceof Message) {
+			builder = this.getMessageBuilderFactory().fromMessage((Message<?>) reply);
+		}
+		else if (reply instanceof AbstractIntegrationMessageBuilder) {
+			builder = (AbstractIntegrationMessageBuilder<?>) reply;
+		}
+		else {
+			builder = this.getMessageBuilderFactory().withPayload(reply);
+		}
+		builder.setHeader(IntegrationMessageHeaderAccessor.ROUTING_SLIP,
+				Collections.singletonMap(routingSlip, routingSlipIndex.get()));
+		return builder;
+	}
+
+	private void asyncNonReactiveReply(Message<?> requestMessage, Object reply, Object replyChannel) {
+
+		ListenableFuture<?> future;
+		if (reply instanceof ListenableFuture<?>) {
+			future = (ListenableFuture<?>) reply;
+		}
+		else {
+			SettableListenableFuture<Object> settableListenableFuture = new SettableListenableFuture<>();
+
+			Mono.from((Publisher<?>) reply)
+					.subscribe(settableListenableFuture::set, settableListenableFuture::setException);
+
+			future = settableListenableFuture;
+		}
+
+		future.addCallback(new ReplyFutureCallback(requestMessage, replyChannel));
 	}
 
 	private Object getOutputChannelFromRoutingSlip(Object reply, Message<?> requestMessage, List<?> routingSlip,
@@ -397,14 +390,15 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 	 * 'outputChannel' is <code>null</code>. In that case, the 'replyChannel' value must not also be
 	 * <code>null</code>, and it must be an instance of either String or {@link MessageChannel}.
 	 * @param output the output object to send
-	 * @param replyChannel the 'replyChannel' value from the original request
+	 * @param replyChannelArg the 'replyChannel' value from the original request
 	 * @param useArgChannel - use the replyChannel argument (must not be null), not
 	 * the configured output channel.
 	 */
-	protected void sendOutput(Object output, Object replyChannel, boolean useArgChannel) {
-		MessageChannel outputChannel = getOutputChannel();
-		if (!useArgChannel && outputChannel != null) {
-			replyChannel = outputChannel;
+	protected void sendOutput(Object output, @Nullable Object replyChannelArg, boolean useArgChannel) {
+		Object replyChannel = replyChannelArg;
+		MessageChannel outChannel = getOutputChannel();
+		if (!useArgChannel && outChannel != null) {
+			replyChannel = outChannel;
 		}
 		if (replyChannel == null) {
 			throw new DestinationResolutionException("no output-channel or replyChannel header available");
@@ -439,7 +433,7 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 		return true;
 	}
 
-	protected void sendErrorMessage(final Message<?> requestMessage, Throwable ex) {
+	protected void sendErrorMessage(Message<?> requestMessage, Throwable ex) {
 		Object errorChannel = resolveErrorChannel(requestMessage.getHeaders());
 		Throwable result = ex;
 		if (!(ex instanceof MessagingException)) {
@@ -454,10 +448,8 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 				sendOutput(new ErrorMessage(result), errorChannel, true);
 			}
 			catch (Exception e) {
-				Exception exceptionToLog = e;
-				if (!(e instanceof MessagingException)) {
-					exceptionToLog = new MessageHandlingException(requestMessage, e);
-				}
+				Exception exceptionToLog =
+						IntegrationUtils.wrapInHandlingExceptionIfNecessary(requestMessage, () -> null,  e);
 				logger.error("Failed to send async reply", exceptionToLog);
 			}
 		}
@@ -474,6 +466,45 @@ public abstract class AbstractMessageProducingHandler extends AbstractMessageHan
 			}
 		}
 		return errorChannel;
+	}
+
+	private final class ReplyFutureCallback implements ListenableFutureCallback<Object> {
+
+		private final Message<?> requestMessage;
+
+		private final Object replyChannel;
+
+		ReplyFutureCallback(Message<?> requestMessage, Object replyChannel) {
+			this.requestMessage = requestMessage;
+			this.replyChannel = replyChannel;
+		}
+
+
+		@Override
+		public void onSuccess(Object result) {
+			Message<?> replyMessage = null;
+			try {
+				replyMessage = createOutputMessage(result, this.requestMessage.getHeaders());
+				sendOutput(replyMessage, this.replyChannel, false);
+			}
+			catch (Exception ex) {
+				Exception exceptionToLogAndSend = ex;
+				if (!(ex instanceof MessagingException)) { // NOSONAR
+					exceptionToLogAndSend = new MessageHandlingException(this.requestMessage, ex);
+					if (replyMessage != null) {
+						exceptionToLogAndSend = new MessagingException(replyMessage, exceptionToLogAndSend);
+					}
+				}
+				logger.error("Failed to send async reply: " + result.toString(), exceptionToLogAndSend);
+				onFailure(exceptionToLogAndSend);
+			}
+		}
+
+		@Override
+		public void onFailure(Throwable ex) {
+			sendErrorMessage(this.requestMessage, ex);
+		}
+
 	}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -160,7 +160,7 @@ abstract class AbstractSubscribableAmqpChannel extends AbstractAmqpChannel
 	}
 
 	@Override
-	public void onInit() throws Exception {
+	public void onInit() {
 		super.onInit();
 		this.dispatcher = this.createDispatcher();
 		if (this.maxSubscribers == null) {
@@ -240,7 +240,7 @@ abstract class AbstractSubscribableAmqpChannel extends AbstractAmqpChannel
 	}
 
 	@Override
-	public void destroy() throws Exception {
+	public void destroy() {
 		super.destroy();
 		if (this.container != null) {
 			this.container.destroy();
@@ -288,14 +288,9 @@ abstract class AbstractSubscribableAmqpChannel extends AbstractAmqpChannel
 			Message<?> messageToSend = null;
 			try {
 				Object converted = this.converter.fromMessage(message);
-				if (converted != null) {
-					messageToSend = (converted instanceof Message<?>) ? (Message<?>) converted
-							: buildMessage(message, converted);
-					this.dispatcher.dispatch(messageToSend);
-				}
-				else if (this.logger.isWarnEnabled()) {
-					this.logger.warn("MessageConverter returned null, no Message to dispatch");
-				}
+				messageToSend = (converted instanceof Message<?>) ? (Message<?>) converted
+						: buildMessage(message, converted);
+				this.dispatcher.dispatch(messageToSend);
 			}
 			catch (MessageDispatchingException e) {
 				String exceptionMessage = e.getMessage() + " for amqp-channel '"

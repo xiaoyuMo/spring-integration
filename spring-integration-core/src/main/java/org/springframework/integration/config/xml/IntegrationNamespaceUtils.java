@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,8 +46,8 @@ import org.springframework.integration.config.ExpressionFactoryBean;
 import org.springframework.integration.config.FixedSubscriberChannelBeanFactoryPostProcessor;
 import org.springframework.integration.config.IntegrationConfigUtils;
 import org.springframework.integration.context.IntegrationContextUtils;
-import org.springframework.integration.endpoint.AbstractPollingEndpoint;
 import org.springframework.integration.transaction.TransactionHandleMessageAdvice;
+import org.springframework.lang.Nullable;
 import org.springframework.transaction.interceptor.DefaultTransactionAttribute;
 import org.springframework.transaction.interceptor.MatchAlwaysTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
@@ -318,7 +318,7 @@ public abstract class IntegrationNamespaceUtils {
 			Element beanElement = childElements.get(0);
 			BeanDefinitionParserDelegate delegate = parserContext.getDelegate();
 			BeanDefinitionHolder bdHolder = delegate.parseBeanDefinitionElement(beanElement);
-			bdHolder = delegate.decorateBeanDefinitionIfRequired(beanElement, bdHolder);
+			bdHolder = delegate.decorateBeanDefinitionIfRequired(beanElement, bdHolder); // NOSONAR never null
 			BeanDefinition inDef = bdHolder.getBeanDefinition();
 			innerComponentDefinition = new BeanComponentDefinition(inDef, bdHolder.getBeanName());
 		}
@@ -357,12 +357,14 @@ public abstract class IntegrationNamespaceUtils {
 	 * @param rootBuilder The root builder.
 	 * @param parserContext The parser context.
 	 * @param headerMapperBuilder The header mapper builder.
-	 * @param replyHeaderValue The reply header value.
+	 * @param replyHeaderValueArg The reply header value.
 	 */
 	public static void configureHeaderMapper(Element element, BeanDefinitionBuilder rootBuilder,
-			ParserContext parserContext, BeanDefinitionBuilder headerMapperBuilder, String replyHeaderValue) {
+			ParserContext parserContext, BeanDefinitionBuilder headerMapperBuilder,
+			@Nullable String replyHeaderValueArg) {
 
 		String defaultMappedReplyHeadersAttributeName = "mapped-reply-headers";
+		String replyHeaderValue = replyHeaderValueArg;
 		if (!StringUtils.hasText(replyHeaderValue)) {
 			replyHeaderValue = defaultMappedReplyHeadersAttributeName;
 		}
@@ -398,7 +400,7 @@ public abstract class IntegrationNamespaceUtils {
 	 * For example, this advisor will be applied on the Polling Task proxy.
 	 * @param txElement The transactional element.
 	 * @return The bean definition.
-	 * @see AbstractPollingEndpoint
+	 * @see org.springframework.integration.endpoint.AbstractPollingEndpoint
 	 */
 	public static BeanDefinition configureTransactionAttributes(Element txElement) {
 		return configureTransactionAttributes(txElement, false);
@@ -413,7 +415,7 @@ public abstract class IntegrationNamespaceUtils {
 	 * @param handleMessageAdvice flag if to use {@link TransactionHandleMessageAdvice}
 	 * or regular {@link TransactionInterceptor}
 	 * @return The bean definition.
-	 * @see AbstractPollingEndpoint
+	 * @see org.springframework.integration.endpoint.AbstractPollingEndpoint
 	 */
 	public static BeanDefinition configureTransactionAttributes(Element txElement, boolean handleMessageAdvice) {
 		BeanDefinition txDefinition = configureTransactionDefinition(txElement);
@@ -514,7 +516,7 @@ public abstract class IntegrationNamespaceUtils {
 					if ("bean".equals(localName)) {
 						BeanDefinitionHolder holder = parserContext.getDelegate().parseBeanDefinitionElement(
 								childElement, parentBeanDefinition);
-						parserContext.registerBeanComponent(new BeanComponentDefinition(holder));
+						parserContext.registerBeanComponent(new BeanComponentDefinition(holder)); // NOSONAR never null
 						adviceChain.add(new RuntimeBeanReference(holder.getBeanName()));
 					}
 					else if ("ref".equals(localName)) {
@@ -636,7 +638,7 @@ public abstract class IntegrationNamespaceUtils {
 			else {
 				candidates = (ManagedMap<String, String>) argumentValue.getValue();
 			}
-			candidates.put(handlerBeanName, channelName);
+			candidates.put(handlerBeanName, channelName); // NOSONAR never null
 		}
 	}
 

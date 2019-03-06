@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,12 +24,12 @@ import org.springframework.integration.dispatcher.RoundRobinLoadBalancingStrateg
 import org.springframework.integration.dispatcher.UnicastingDispatcher;
 import org.springframework.integration.support.channel.BeanFactoryChannelResolver;
 import org.springframework.integration.util.ErrorHandlingTaskExecutor;
-import org.springframework.messaging.MessageChannel;
 import org.springframework.util.Assert;
 import org.springframework.util.ErrorHandler;
 
 /**
- * An implementation of {@link MessageChannel} that delegates to an instance of
+ * An implementation of {@link org.springframework.messaging.MessageChannel}
+ * that delegates to an instance of
  * {@link UnicastingDispatcher} which in turn delegates all dispatching
  * invocations to an {@link Executor}.
  * <p>
@@ -98,7 +98,7 @@ public class ExecutorChannel extends AbstractExecutorChannel {
 	}
 
 	@Override
-	public final void onInit() throws Exception {
+	public final void onInit() {
 		Assert.state(getDispatcher().getHandlerCount() == 0, "You cannot subscribe() until the channel "
 				+ "bean is fully initialized by the framework. Do not subscribe in a @Bean definition");
 		super.onInit();

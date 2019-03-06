@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,12 @@
 
 package org.springframework.integration.groovy;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.Map;
+import java.util.UUID;
 
 import org.springframework.integration.scripting.AbstractScriptExecutingMessageProcessor;
-import org.springframework.integration.scripting.DefaultScriptVariableGenerator;
 import org.springframework.integration.scripting.ScriptVariableGenerator;
 import org.springframework.messaging.Message;
 import org.springframework.scripting.ScriptSource;
@@ -28,6 +30,7 @@ import org.springframework.scripting.groovy.GroovyScriptFactory;
 import org.springframework.scripting.support.StaticScriptSource;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.ObjectUtils;
 
 import groovy.lang.Binding;
 import groovy.lang.GString;
@@ -38,6 +41,8 @@ import groovy.lang.GString;
  * @author Oleg Zhurakousky
  * @author Artem Bilan
  * @author Stefan Reuter
+ * @author Gary Russell
+ *
  * @since 2.0
  */
 public class GroovyCommandMessageProcessor extends AbstractScriptExecutingMessageProcessor<Object> {
@@ -48,7 +53,8 @@ public class GroovyCommandMessageProcessor extends AbstractScriptExecutingMessag
 
 
 	/**
-	 * Creates a {@link GroovyCommandMessageProcessor} that will use the {@link DefaultScriptVariableGenerator}.
+	 * Creates a {@link GroovyCommandMessageProcessor} that will use the
+	 * {@link org.springframework.integration.scripting.DefaultScriptVariableGenerator}.
 	 */
 	public GroovyCommandMessageProcessor() {
 		super();
@@ -56,7 +62,6 @@ public class GroovyCommandMessageProcessor extends AbstractScriptExecutingMessag
 
 	/**
 	 * Creates a {@link GroovyCommandMessageProcessor} that will use the provided {@link ScriptVariableGenerator}.
-	 *
 	 * @param scriptVariableGenerator The variable generator.
 	 */
 	public GroovyCommandMessageProcessor(ScriptVariableGenerator scriptVariableGenerator) {
@@ -64,24 +69,23 @@ public class GroovyCommandMessageProcessor extends AbstractScriptExecutingMessag
 	}
 
 	/**
-	 * Creates a {@link GroovyCommandMessageProcessor} that will use the {@link DefaultScriptVariableGenerator}
+	 * Creates a {@link GroovyCommandMessageProcessor} that will use the
+	 * {@link org.springframework.integration.scripting.DefaultScriptVariableGenerator}
 	 * and provided {@link Binding}.
 	 * Provided 'binding' will be used in the {@link BindingOverwriteGroovyObjectCustomizerDecorator} to overwrite
 	 * original Groovy Script 'binding'.
-	 *
 	 * @param binding The binding.
 	 */
 	public GroovyCommandMessageProcessor(Binding binding) {
-		this();
 		Assert.notNull(binding, "binding must not be null");
 		this.binding = binding;
 	}
 
 	/**
-	 * Creates a {@link GroovyCommandMessageProcessor} that will use the provided {@link ScriptVariableGenerator} and Binding.
+	 * Creates a {@link GroovyCommandMessageProcessor} that will use the provided {@link ScriptVariableGenerator} and
+	 * Binding.
 	 * Provided 'binding' will be used in the {@link BindingOverwriteGroovyObjectCustomizerDecorator} to overwrite
 	 * original Groovy Script 'binding'.
-	 *
 	 * @param binding The binding.
 	 * @param scriptVariableGenerator The variable generator.
 	 */
@@ -93,7 +97,6 @@ public class GroovyCommandMessageProcessor extends AbstractScriptExecutingMessag
 
 	/**
 	 * Sets a {@link GroovyObjectCustomizer} for this processor.
-	 *
 	 * @param customizer The customizer.
 	 */
 	public void setCustomizer(GroovyObjectCustomizer customizer) {
@@ -109,31 +112,40 @@ public class GroovyCommandMessageProcessor extends AbstractScriptExecutingMessag
 	}
 
 	@Override
-	protected Object executeScript(ScriptSource scriptSource, Map<String, Object> variables) throws Exception {
+	protected Object executeScript(ScriptSource scriptSource, Map<String, Object> variables) {
 		Assert.notNull(scriptSource, "scriptSource must not be null");
-		VariableBindingGroovyObjectCustomizerDecorator customizerDecorator = this.binding != null
-				? new BindingOverwriteGroovyObjectCustomizerDecorator(this.binding)
-				: new VariableBindingGroovyObjectCustomizerDecorator();
+		VariableBindingGroovyObjectCustomizerDecorator customizerDecorator =
+				this.binding != null
+						? new BindingOverwriteGroovyObjectCustomizerDecorator(this.binding)
+						: new VariableBindingGroovyObjectCustomizerDecorator();
 		if (this.customizer != null) {
 			customizerDecorator.setCustomizer(this.customizer);
 		}
 		if (!CollectionUtils.isEmpty(variables)) {
 			customizerDecorator.setVariables(variables);
 		}
-		GroovyScriptFactory factory = new GroovyScriptFactory(this.getClass().getSimpleName(), customizerDecorator);
+		GroovyScriptFactory factory = new GroovyScriptFactory(getClass().getSimpleName(), customizerDecorator);
 		if (this.beanClassLoader != null) {
 			factory.setBeanClassLoader(this.beanClassLoader);
 		}
 		if (this.beanFactory != null) {
 			factory.setBeanFactory(this.beanFactory);
 		}
-		Object result = factory.getScriptedObject(scriptSource);
-		return (result instanceof GString) ? result.toString() : result;
+		try {
+			Object result = factory.getScriptedObject(scriptSource);
+			return (result instanceof GString) ? result.toString() : result;
+		}
+		catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+
 	}
 
 	protected String generateScriptName(Message<?> message) {
 		// Don't use the same script (class) name for all invocations by default
-		return getClass().getSimpleName() + message.getHeaders().getId().toString().replaceAll("-", "");
+		UUID id = message.getHeaders().getId();
+		return getClass().getSimpleName()
+				+ (id != null ? id.toString().replaceAll("-", "") : ObjectUtils.getIdentityHexString(message));
 	}
 
 }

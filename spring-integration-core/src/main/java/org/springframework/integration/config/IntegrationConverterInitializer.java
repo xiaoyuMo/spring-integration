@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2014-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import org.springframework.integration.support.utils.IntegrationUtils;
 
 /**
  * @author Artem Bilan
+ * @author Gary Russell
  * @since 4.0
  */
 public class IntegrationConverterInitializer implements IntegrationConfigurationInitializer {
@@ -53,7 +54,7 @@ public class IntegrationConverterInitializer implements IntegrationConfiguration
 
 				if (!hasIntegrationConverter && beanDefinition.getSource() instanceof MethodMetadata) {
 					MethodMetadata beanMethod = (MethodMetadata) beanDefinition.getSource();
-					hasIntegrationConverter = beanMethod.isAnnotated(IntegrationConverter.class.getName());
+					hasIntegrationConverter = beanMethod.isAnnotated(IntegrationConverter.class.getName()); // NOSONAR never null
 				}
 
 				if (hasIntegrationConverter) {
@@ -89,6 +90,6 @@ public class IntegrationConverterInitializer implements IntegrationConfiguration
 					.getValue();
 		}
 
-		converters.add(converterBeanDefinition);
+		converters.add(converterBeanDefinition); // NOSONAR never null
 	}
 }

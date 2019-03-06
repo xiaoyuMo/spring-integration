@@ -57,7 +57,6 @@ import org.springframework.integration.context.IntegrationContextUtils;
 import org.springframework.integration.context.IntegrationProperties;
 import org.springframework.integration.handler.LoggingHandler;
 import org.springframework.integration.handler.support.CollectionArgumentResolver;
-import org.springframework.integration.handler.support.HandlerMethodArgumentResolversHolder;
 import org.springframework.integration.handler.support.MapArgumentResolver;
 import org.springframework.integration.handler.support.PayloadExpressionArgumentResolver;
 import org.springframework.integration.handler.support.PayloadsArgumentResolver;
@@ -68,7 +67,6 @@ import org.springframework.integration.support.converter.ConfigurableCompositeMe
 import org.springframework.integration.support.converter.DefaultDatatypeChannelMessageConverter;
 import org.springframework.integration.support.json.JacksonPresent;
 import org.springframework.integration.support.utils.IntegrationUtils;
-import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.util.ClassUtils;
 
@@ -89,7 +87,7 @@ class DefaultConfiguringBeanFactoryPostProcessor
 
 	private static final Log logger = LogFactory.getLog(DefaultConfiguringBeanFactoryPostProcessor.class);
 
-	private final static IntegrationConverterInitializer INTEGRATION_CONVERTER_INITIALIZER =
+	private static final IntegrationConverterInitializer INTEGRATION_CONVERTER_INITIALIZER =
 			new IntegrationConverterInitializer();
 
 	private static final Set<Integer> registriesProcessed = new HashSet<>();
@@ -152,17 +150,22 @@ class DefaultConfiguringBeanFactoryPostProcessor
 	 */
 	private void registerNullChannel() {
 		if (this.beanFactory.containsBean(IntegrationContextUtils.NULL_CHANNEL_BEAN_NAME)) {
-			BeanDefinition nullChannelDefinition;
+			BeanDefinition nullChannelDefinition = null;
 			if (this.beanFactory.containsBeanDefinition(IntegrationContextUtils.NULL_CHANNEL_BEAN_NAME)) {
 				nullChannelDefinition =
 						this.beanFactory.getBeanDefinition(IntegrationContextUtils.NULL_CHANNEL_BEAN_NAME);
 			}
 			else {
-				nullChannelDefinition =
-						((BeanDefinitionRegistry) this.beanFactory.getParentBeanFactory())
-								.getBeanDefinition(IntegrationContextUtils.NULL_CHANNEL_BEAN_NAME);
+				BeanDefinitionRegistry parentBeanFactory =
+						(BeanDefinitionRegistry) this.beanFactory.getParentBeanFactory();
+				if (parentBeanFactory != null) {
+					nullChannelDefinition =
+							parentBeanFactory.getBeanDefinition(IntegrationContextUtils.NULL_CHANNEL_BEAN_NAME);
+				}
 			}
-			if (!NullChannel.class.getName().equals(nullChannelDefinition.getBeanClassName())) {
+
+			if (nullChannelDefinition != null &&
+					!NullChannel.class.getName().equals(nullChannelDefinition.getBeanClassName())) {
 				throw new IllegalStateException("The bean name '" + IntegrationContextUtils.NULL_CHANNEL_BEAN_NAME
 						+ "' is reserved.");
 			}
@@ -183,7 +186,8 @@ class DefaultConfiguringBeanFactoryPostProcessor
 		if (!this.beanFactory.containsBean(IntegrationContextUtils.ERROR_CHANNEL_BEAN_NAME)) {
 			if (logger.isInfoEnabled()) {
 				logger.info("No bean named '" + IntegrationContextUtils.ERROR_CHANNEL_BEAN_NAME +
-						"' has been explicitly defined. Therefore, a default PublishSubscribeChannel will be created.");
+						"' has been explicitly defined. " +
+						"Therefore, a default PublishSubscribeChannel will be created.");
 			}
 			this.registry.registerBeanDefinition(IntegrationContextUtils.ERROR_CHANNEL_BEAN_NAME,
 					new RootBeanDefinition(PublishSubscribeChannel.class));
@@ -269,7 +273,8 @@ class DefaultConfiguringBeanFactoryPostProcessor
 		if (!this.beanFactory.containsBean(IntegrationContextUtils.TASK_SCHEDULER_BEAN_NAME)) {
 			if (logger.isInfoEnabled()) {
 				logger.info("No bean named '" + IntegrationContextUtils.TASK_SCHEDULER_BEAN_NAME +
-						"' has been explicitly defined. Therefore, a default ThreadPoolTaskScheduler will be created.");
+						"' has been explicitly defined. " +
+						"Therefore, a default ThreadPoolTaskScheduler will be created.");
 			}
 			BeanDefinition scheduler = BeanDefinitionBuilder.genericBeanDefinition(ThreadPoolTaskScheduler.class)
 					.addPropertyValue("poolSize", IntegrationProperties
@@ -462,8 +467,8 @@ class DefaultConfiguringBeanFactoryPostProcessor
 	}
 
 	/**
-	 * Register the default {@link CompositeMessageConverter} for argument resolvers
-	 * during handler method invocation.
+	 * Register the default {@link ConfigurableCompositeMessageConverter} for argument
+	 * resolvers during handler method invocation.
 	 */
 	private void registerArgumentResolverMessageConverter() {
 		if (!this.beanFactory.containsBean(IntegrationContextUtils.ARGUMENT_RESOLVER_MESSAGE_CONVERTER_BEAN_NAME)) {
@@ -475,7 +480,8 @@ class DefaultConfiguringBeanFactoryPostProcessor
 	}
 
 	/**
-	 * Register the default {@link HandlerMethodArgumentResolversHolder} for handler
+	 * Register the default
+	 * {@link org.springframework.integration.handler.support.HandlerMethodArgumentResolversHolder} for handler
 	 * method invocation.
 	 */
 	private void registerArgumentResolvers() {
@@ -486,7 +492,8 @@ class DefaultConfiguringBeanFactoryPostProcessor
 	}
 
 	/**
-	 * Register the default {@link HandlerMethodArgumentResolversHolder} for handler
+	 * Register the default
+	 * {@link org.springframework.integration.handler.support.HandlerMethodArgumentResolversHolder} for handler
 	 * method invocation for lists.
 	 */
 	private void registerListCapableArgumentResolvers() {
@@ -496,6 +503,7 @@ class DefaultConfiguringBeanFactoryPostProcessor
 		}
 	}
 
+	@SuppressWarnings("deprecation")
 	private BeanDefinition internalArgumentResolversBuilder(boolean listCapable) {
 		ManagedList<BeanDefinition> resolvers = new ManagedList<>();
 		resolvers.add(new RootBeanDefinition(PayloadExpressionArgumentResolver.class));
@@ -514,7 +522,8 @@ class DefaultConfiguringBeanFactoryPostProcessor
 							.getBeanDefinition());
 		}
 
-		return BeanDefinitionBuilder.genericBeanDefinition(HandlerMethodArgumentResolversHolder.class)
+		return BeanDefinitionBuilder.genericBeanDefinition(
+				org.springframework.integration.handler.support.HandlerMethodArgumentResolversHolder.class)
 				.addConstructorArgValue(resolvers)
 				.getBeanDefinition();
 	}

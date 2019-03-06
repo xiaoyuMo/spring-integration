@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,8 @@
 
 package org.springframework.integration.bus;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import org.junit.After;
 import org.junit.Before;
@@ -65,16 +66,15 @@ public class DirectChannelSubscriptionTests {
 
 	@Test
 	public void sendAndReceiveForRegisteredEndpoint() {
-		TestApplicationContext context = TestUtils.createTestApplicationContext();
 		ServiceActivatingHandler serviceActivator = new ServiceActivatingHandler(new TestBean(), "handle");
 		serviceActivator.setOutputChannel(this.targetChannel);
+		context.registerBean("testServiceActivator", serviceActivator);
 		EventDrivenConsumer endpoint = new EventDrivenConsumer(this.sourceChannel, serviceActivator);
 		context.registerEndpoint("testEndpoint", endpoint);
 		context.refresh();
-		this.sourceChannel.send(new GenericMessage<String>("foo"));
+		this.sourceChannel.send(new GenericMessage<>("foo"));
 		Message<?> response = this.targetChannel.receive();
-		assertEquals("foo!", response.getPayload());
-		context.stop();
+		assertThat(response.getPayload()).isEqualTo("foo!");
 	}
 
 	@Test
@@ -82,13 +82,13 @@ public class DirectChannelSubscriptionTests {
 		MessagingAnnotationPostProcessor postProcessor = new MessagingAnnotationPostProcessor();
 		postProcessor.setBeanFactory(this.context.getBeanFactory());
 		postProcessor.afterPropertiesSet();
+		postProcessor.afterSingletonsInstantiated();
 		TestEndpoint endpoint = new TestEndpoint();
 		postProcessor.postProcessAfterInitialization(endpoint, "testEndpoint");
 		this.context.refresh();
 		this.sourceChannel.send(new GenericMessage<>("foo"));
 		Message<?> response = this.targetChannel.receive();
-		assertEquals("foo-from-annotated-endpoint", response.getPayload());
-		this.context.stop();
+		assertThat(response.getPayload()).isEqualTo("foo-from-annotated-endpoint");
 	}
 
 	@Test(expected = MessagingException.class)
@@ -104,30 +104,22 @@ public class DirectChannelSubscriptionTests {
 		EventDrivenConsumer endpoint = new EventDrivenConsumer(sourceChannel, handler);
 		this.context.registerEndpoint("testEndpoint", endpoint);
 		this.context.refresh();
-		try {
-			this.sourceChannel.send(new GenericMessage<>("foo"));
-		}
-		finally {
-			this.context.stop();
-		}
+		this.sourceChannel.send(new GenericMessage<>("foo"));
 	}
 
-	@Test(expected = MessagingException.class)
+	@Test
 	public void exceptionThrownFromAnnotatedEndpoint() {
 		QueueChannel errorChannel = new QueueChannel();
 		this.context.registerChannel(IntegrationContextUtils.ERROR_CHANNEL_BEAN_NAME, errorChannel);
 		MessagingAnnotationPostProcessor postProcessor = new MessagingAnnotationPostProcessor();
 		postProcessor.setBeanFactory(this.context.getBeanFactory());
 		postProcessor.afterPropertiesSet();
+		postProcessor.afterSingletonsInstantiated();
 		FailingTestEndpoint endpoint = new FailingTestEndpoint();
 		postProcessor.postProcessAfterInitialization(endpoint, "testEndpoint");
 		this.context.refresh();
-		try {
-			this.sourceChannel.send(new GenericMessage<String>("foo"));
-		}
-		finally {
-			this.context.stop();
-		}
+		assertThatExceptionOfType(MessagingException.class)
+				.isThrownBy(() -> this.sourceChannel.send(new GenericMessage<>("foo")));
 	}
 
 

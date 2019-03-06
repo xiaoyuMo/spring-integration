@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-2017 the original author or authors.
+ * Copyright 2015-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,7 @@
 
 package org.springframework.integration.file.config;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.Charset;
 
@@ -60,19 +58,19 @@ public class FileSplitterParserTests {
 
 	@Test
 	public void testComplete() {
-		assertFalse(TestUtils.getPropertyValue(this.splitter, "iterator", Boolean.class));
-		assertTrue(TestUtils.getPropertyValue(this.splitter, "markers", Boolean.class));
-		assertTrue(TestUtils.getPropertyValue(this.splitter, "markersJson", Boolean.class));
-		assertTrue(TestUtils.getPropertyValue(this.splitter, "requiresReply", Boolean.class));
-		assertTrue(TestUtils.getPropertyValue(this.splitter, "applySequence", Boolean.class));
-		assertEquals(Charset.forName("UTF-8"), TestUtils.getPropertyValue(this.splitter, "charset"));
-		assertEquals(5L, TestUtils.getPropertyValue(this.splitter, "messagingTemplate.sendTimeout"));
-		assertEquals(this.out, TestUtils.getPropertyValue(this.splitter, "outputChannel"));
-		assertEquals(2, TestUtils.getPropertyValue(this.splitter, "order"));
-		assertEquals("foo", TestUtils.getPropertyValue(this.splitter, "firstLineHeaderName"));
-		assertEquals(this.in, TestUtils.getPropertyValue(this.fullBoat, "inputChannel"));
-		assertFalse(TestUtils.getPropertyValue(this.fullBoat, "autoStartup", Boolean.class));
-		assertEquals(1, TestUtils.getPropertyValue(this.fullBoat, "phase"));
+		assertThat(TestUtils.getPropertyValue(this.splitter, "returnIterator", Boolean.class)).isFalse();
+		assertThat(TestUtils.getPropertyValue(this.splitter, "markers", Boolean.class)).isTrue();
+		assertThat(TestUtils.getPropertyValue(this.splitter, "markersJson", Boolean.class)).isTrue();
+		assertThat(TestUtils.getPropertyValue(this.splitter, "requiresReply", Boolean.class)).isTrue();
+		assertThat(TestUtils.getPropertyValue(this.splitter, "applySequence", Boolean.class)).isTrue();
+		assertThat(TestUtils.getPropertyValue(this.splitter, "charset")).isEqualTo(Charset.forName("UTF-8"));
+		assertThat(TestUtils.getPropertyValue(this.splitter, "messagingTemplate.sendTimeout")).isEqualTo(5L);
+		assertThat(TestUtils.getPropertyValue(this.splitter, "firstLineHeaderName")).isEqualTo("foo");
+		assertThat(this.splitter.getOutputChannel()).isSameAs(this.out);
+		assertThat(this.splitter.getOrder()).isEqualTo(2);
+		assertThat(this.fullBoat.getInputChannel()).isSameAs(this.in);
+		assertThat(this.fullBoat.isAutoStartup()).isFalse();
+		assertThat(this.fullBoat.getPhase()).isEqualTo(1);
 	}
 
 }

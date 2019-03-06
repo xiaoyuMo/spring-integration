@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,7 @@
 
 package org.springframework.integration.mail.config;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Properties;
 
@@ -40,6 +39,7 @@ import org.springframework.messaging.support.GenericMessage;
  * @author Mark Fisher
  * @author Gary Russell
  * @author Gunnar Hillert
+ * @author Artem Bilan
  */
 public class MailOutboundChannelAdapterParserTests {
 
@@ -54,8 +54,8 @@ public class MailOutboundChannelAdapterParserTests {
 				new DirectFieldAccessor(adapter).getPropertyValue("handler");
 		DirectFieldAccessor fieldAccessor = new DirectFieldAccessor(handler);
 		MailSender mailSender = (MailSender) fieldAccessor.getPropertyValue("mailSender");
-		assertNotNull(mailSender);
-		assertEquals(23, fieldAccessor.getPropertyValue("order"));
+		assertThat(mailSender).isNotNull();
+		assertThat(fieldAccessor.getPropertyValue("order")).isEqualTo(23);
 		context.close();
 	}
 
@@ -66,8 +66,8 @@ public class MailOutboundChannelAdapterParserTests {
 		Object adapter = context.getBean("advised.adapter");
 		MessageHandler handler = (MessageHandler)
 				new DirectFieldAccessor(adapter).getPropertyValue("handler");
-		handler.handleMessage(new GenericMessage<String>("foo"));
-		assertEquals(1, adviceCalled);
+		handler.handleMessage(new GenericMessage<>("foo"));
+		assertThat(adviceCalled).isEqualTo(1);
 		context.close();
 	}
 
@@ -80,7 +80,7 @@ public class MailOutboundChannelAdapterParserTests {
 				new DirectFieldAccessor(adapter).getPropertyValue("handler");
 		DirectFieldAccessor fieldAccessor = new DirectFieldAccessor(handler);
 		MailSender mailSender = (MailSender) fieldAccessor.getPropertyValue("mailSender");
-		assertNotNull(mailSender);
+		assertThat(mailSender).isNotNull();
 		context.close();
 	}
 
@@ -90,7 +90,7 @@ public class MailOutboundChannelAdapterParserTests {
 				"mailOutboundChannelAdapterParserTests.xml", this.getClass());
 		PollingConsumer pc = context.getBean("adapterWithPollableChannel", PollingConsumer.class);
 		QueueChannel pollableChannel = TestUtils.getPropertyValue(pc, "inputChannel", QueueChannel.class);
-		assertEquals("pollableChannel", pollableChannel.getComponentName());
+		assertThat(pollableChannel.getComponentName()).isEqualTo("pollableChannel");
 		context.close();
 	}
 
@@ -103,21 +103,22 @@ public class MailOutboundChannelAdapterParserTests {
 				new DirectFieldAccessor(adapter).getPropertyValue("handler");
 		DirectFieldAccessor fieldAccessor = new DirectFieldAccessor(handler);
 		MailSender mailSender = (MailSender) fieldAccessor.getPropertyValue("mailSender");
-		assertNotNull(mailSender);
+		assertThat(mailSender).isNotNull();
 		Properties javaMailProperties = (Properties) TestUtils.getPropertyValue(mailSender, "javaMailProperties");
-		assertEquals(7, javaMailProperties.size());
-		assertNotNull(javaMailProperties);
-		assertEquals("true", javaMailProperties.get("mail.smtps.auth"));
+		assertThat(javaMailProperties.size()).isEqualTo(9);
+		assertThat(javaMailProperties).isNotNull();
+		assertThat(javaMailProperties.get("mail.smtps.auth")).isEqualTo("true");
 		context.close();
 	}
 
 	public static class FooAdvice extends AbstractRequestHandlerAdvice {
 
 		@Override
-		protected Object doInvoke(ExecutionCallback callback, Object target, Message<?> message) throws Exception {
+		protected Object doInvoke(ExecutionCallback callback, Object target, Message<?> message) {
 			adviceCalled++;
 			return null;
 		}
 
 	}
+
 }

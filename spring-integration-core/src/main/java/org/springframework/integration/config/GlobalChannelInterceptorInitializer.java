@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2014-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,16 +28,17 @@ import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.core.type.AnnotationMetadata;
 import org.springframework.core.type.MethodMetadata;
 import org.springframework.integration.channel.interceptor.GlobalChannelInterceptorWrapper;
-import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.util.CollectionUtils;
 
 /**
  * The {@link IntegrationConfigurationInitializer} to populate {@link GlobalChannelInterceptorWrapper}
- * for {@link ChannelInterceptor}s marked with {@link GlobalChannelInterceptor} annotation.
+ * for {@link org.springframework.messaging.support.ChannelInterceptor}s marked with
+ * {@link GlobalChannelInterceptor} annotation.
  * <p>
  * {@link org.springframework.context.annotation.Bean} methods are also processed.
  *
  * @author Artem Bilan
+ * @author Gary Russell
  * @since 4.0
  */
 public class GlobalChannelInterceptorInitializer implements IntegrationConfigurationInitializer {
@@ -50,14 +51,18 @@ public class GlobalChannelInterceptorInitializer implements IntegrationConfigura
 			BeanDefinition beanDefinition = registry.getBeanDefinition(beanName);
 			if (beanDefinition instanceof AnnotatedBeanDefinition) {
 				AnnotationMetadata metadata = ((AnnotatedBeanDefinition) beanDefinition).getMetadata();
-				Map<String, Object> annotationAttributes = metadata.getAnnotationAttributes(GlobalChannelInterceptor.class.getName());
-				if (CollectionUtils.isEmpty(annotationAttributes) && beanDefinition.getSource() instanceof MethodMetadata) {
+				Map<String, Object> annotationAttributes = metadata
+						.getAnnotationAttributes(GlobalChannelInterceptor.class.getName());
+				if (CollectionUtils.isEmpty(annotationAttributes)
+						&& beanDefinition.getSource() instanceof MethodMetadata) {
 					MethodMetadata beanMethod = (MethodMetadata) beanDefinition.getSource();
-					annotationAttributes = beanMethod.getAnnotationAttributes(GlobalChannelInterceptor.class.getName());
+					annotationAttributes =
+						beanMethod.getAnnotationAttributes(GlobalChannelInterceptor.class.getName()); // NOSONAR not null
 				}
 
 				if (!CollectionUtils.isEmpty(annotationAttributes)) {
-					BeanDefinitionBuilder builder = BeanDefinitionBuilder.genericBeanDefinition(GlobalChannelInterceptorWrapper.class)
+					BeanDefinitionBuilder builder = BeanDefinitionBuilder
+							.genericBeanDefinition(GlobalChannelInterceptorWrapper.class)
 							.addConstructorArgReference(beanName)
 							.addPropertyValue("patterns", annotationAttributes.get("patterns"))
 							.addPropertyValue("order", annotationAttributes.get("order"));

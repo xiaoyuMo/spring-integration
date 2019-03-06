@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.integration.core.MessageSelector;
 import org.springframework.integration.filter.ExpressionEvaluatingSelector;
@@ -69,6 +71,7 @@ import org.springframework.util.StringUtils;
  * @author Oleg Zhurakousky
  * @author Artem Bilan
  * @author Liujiong
+ * @author Gary Russell
  */
 public class RecipientListRouter extends AbstractMessageRouter
 		implements InitializingBean, RecipientListRouterManagement {
@@ -83,10 +86,9 @@ public class RecipientListRouter extends AbstractMessageRouter
 	 */
 	public void setChannels(List<MessageChannel> channels) {
 		Assert.notEmpty(channels, "'channels' must not be empty");
-		List<Recipient> recipients = channels.stream()
+		setRecipients(channels.stream()
 				.map(Recipient::new)
-				.collect(Collectors.toList());
-		setRecipients(recipients);
+				.collect(Collectors.toList()));
 	}
 
 	/**
@@ -97,9 +99,8 @@ public class RecipientListRouter extends AbstractMessageRouter
 		Assert.notEmpty(recipients, "'recipients' must not be empty");
 		Queue<Recipient> newRecipients = new ConcurrentLinkedQueue<>(recipients);
 
-		if (getBeanFactory() != null) {
-			newRecipients.forEach(recipient -> recipient.setChannelResolver(getChannelResolver()));
-		}
+		newRecipients.forEach(this::setupRecipient);
+
 		if (logger.isDebugEnabled()) {
 			logger.debug("Channel Recipients: " + this.recipients + " replaced with: " + newRecipients);
 		}
@@ -145,9 +146,7 @@ public class RecipientListRouter extends AbstractMessageRouter
 				new ExpressionEvaluatingSelector(selectorExpression);
 		expressionEvaluatingSelector.setBeanFactory(getBeanFactory());
 		Recipient recipient = new Recipient(channelName, expressionEvaluatingSelector);
-		if (getBeanFactory() != null) {
-			recipient.setChannelResolver(getChannelResolver());
-		}
+		setupRecipient(recipient);
 		recipients.add(recipient);
 	}
 
@@ -164,9 +163,7 @@ public class RecipientListRouter extends AbstractMessageRouter
 	private void addRecipient(String channelName, MessageSelector selector, Queue<Recipient> recipients) {
 		Assert.hasText(channelName, "'channelName' must not be empty.");
 		Recipient recipient = new Recipient(channelName, selector);
-		if (getBeanFactory() != null) {
-			recipient.setChannelResolver(getChannelResolver());
-		}
+		setupRecipient(recipient);
 		recipients.add(recipient);
 	}
 
@@ -176,10 +173,18 @@ public class RecipientListRouter extends AbstractMessageRouter
 
 	public void addRecipient(MessageChannel channel, MessageSelector selector) {
 		Recipient recipient = new Recipient(channel, selector);
-		if (getBeanFactory() != null) {
-			recipient.setChannelResolver(getChannelResolver());
-		}
+		setupRecipient(recipient);
 		this.recipients.add(recipient);
+	}
+
+	private void setupRecipient(Recipient recipient) {
+		BeanFactory beanFactory = getBeanFactory();
+		if (beanFactory != null) {
+			recipient.setChannelResolver(getChannelResolver());
+			if (recipient.selector instanceof BeanFactoryAware) {
+				((BeanFactoryAware) recipient.selector).setBeanFactory(beanFactory);
+			}
+		}
 	}
 
 	@Override
@@ -225,14 +230,14 @@ public class RecipientListRouter extends AbstractMessageRouter
 		for (String key : keys) {
 			Assert.notNull(key, "channelName can't be null.");
 			if (StringUtils.hasText(recipientMappings.getProperty(key))) {
-				this.addRecipient(key, recipientMappings.getProperty(key));
+				addRecipient(key, recipientMappings.getProperty(key));
 			}
 			else {
-				this.addRecipient(key);
+				addRecipient(key);
 			}
 		}
 		if (logger.isDebugEnabled()) {
-			logger.debug("Channel Recipients:" + originalRecipients	+ " replaced with:" + this.recipients);
+			logger.debug("Channel Recipients:" + originalRecipients + " replaced with:" + this.recipients);
 		}
 	}
 
@@ -257,9 +262,9 @@ public class RecipientListRouter extends AbstractMessageRouter
 
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
-		this.recipients.forEach(recipient -> recipient.setChannelResolver(getChannelResolver()));
+		this.recipients.forEach(this::setupRecipient);
 	}
 
 	public static class Recipient {
@@ -299,11 +304,13 @@ public class RecipientListRouter extends AbstractMessageRouter
 		}
 
 		public MessageChannel getChannel() {
-			String channelName = this.channelName;
-			if (channelName != null) {
-				if (this.channelResolver != null) {
-					this.channel = this.channelResolver.resolveDestination(channelName);
-					this.channelName = null;
+			if (this.channel == null) {
+				String channelNameForInitialization = this.channelName;
+				if (channelNameForInitialization != null) {
+					if (this.channelResolver != null) {
+						this.channel = this.channelResolver.resolveDestination(channelNameForInitialization);
+						this.channelName = null;
+					}
 				}
 			}
 			return this.channel;

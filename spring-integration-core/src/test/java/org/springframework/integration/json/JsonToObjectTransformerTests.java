@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,10 @@
 
 package org.springframework.integration.json;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.Test;
 
-import org.springframework.integration.support.json.BoonJsonObjectMapper;
 import org.springframework.integration.support.json.Jackson2JsonObjectMapper;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.GenericMessage;
@@ -37,48 +36,35 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class JsonToObjectTransformerTests {
 
 	@Test
-	public void objectPayload() throws Exception {
+	public void objectPayload() {
 		JsonToObjectTransformer transformer = new JsonToObjectTransformer(TestPerson.class);
-		// Since DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES is disabled by default (see Jackson2JsonObjectMapper)
+		// Since DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES is disabled by default
+		// (see Jackson2JsonObjectMapper)
 		// the extra "foo" property is ignored.
 		String jsonString = "{\"firstName\":\"John\",\"lastName\":\"Doe\",\"age\":42," +
 				"\"address\":{\"number\":123,\"street\":\"Main Street\"}, \"foo\":\"bar\"}";
 		Message<?> message = transformer.transform(new GenericMessage<>(jsonString));
 		TestPerson person = (TestPerson) message.getPayload();
-		assertEquals("John", person.getFirstName());
-		assertEquals("Doe", person.getLastName());
-		assertEquals(42, person.getAge());
-		assertEquals("123 Main Street", person.getAddress().toString());
+		assertThat(person.getFirstName()).isEqualTo("John");
+		assertThat(person.getLastName()).isEqualTo("Doe");
+		assertThat(person.getAge()).isEqualTo(42);
+		assertThat(person.getAddress().toString()).isEqualTo("123 Main Street");
 	}
 
 	@Test
-	public void objectPayloadWithCustomMapper() throws Exception {
+	public void objectPayloadWithCustomMapper() {
 		ObjectMapper customMapper = new ObjectMapper();
 		customMapper.configure(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES, Boolean.TRUE);
 		customMapper.configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, Boolean.TRUE);
 		JsonToObjectTransformer transformer =
 				new JsonToObjectTransformer(TestPerson.class, new Jackson2JsonObjectMapper(customMapper));
 		String jsonString = "{firstName:'John', lastName:'Doe', age:42, address:{number:123, street:'Main Street'}}";
-		Message<?> message = transformer.transform(new GenericMessage<String>(jsonString));
+		Message<?> message = transformer.transform(new GenericMessage<>(jsonString));
 		TestPerson person = (TestPerson) message.getPayload();
-		assertEquals("John", person.getFirstName());
-		assertEquals("Doe", person.getLastName());
-		assertEquals(42, person.getAge());
-		assertEquals("123 Main Street", person.getAddress().toString());
-	}
-
-
-	@Test
-	public void testBoonJsonObjectMapper() throws Exception {
-		JsonToObjectTransformer transformer = new JsonToObjectTransformer(TestPerson.class, new BoonJsonObjectMapper());
-		String jsonString = "{\"firstName\":\"John\",\"lastName\":\"Doe\",\"age\":42," +
-				"\"address\":{\"number\":123,\"street\":\"Main Street\"}}";
-		Message<?> message = transformer.transform(new GenericMessage<String>(jsonString));
-		TestPerson person = (TestPerson) message.getPayload();
-		assertEquals("John", person.getFirstName());
-		assertEquals("Doe", person.getLastName());
-		assertEquals(42, person.getAge());
-		assertEquals("123 Main Street", person.getAddress().toString());
+		assertThat(person.getFirstName()).isEqualTo("John");
+		assertThat(person.getLastName()).isEqualTo("Doe");
+		assertThat(person.getAge()).isEqualTo(42);
+		assertThat(person.getAddress().toString()).isEqualTo("123 Main Street");
 	}
 
 }

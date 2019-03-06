@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -81,9 +81,6 @@ public class DefaultTcpNioSSLConnectionSupport extends AbstractTcpConnectionSupp
 		postProcessSSLEngine(sslEngine);
 		if (this.sslVerifyHost) {
 			SSLParameters sslParameters = sslEngine.getSSLParameters();
-			if (sslParameters == null) {
-				sslParameters = new SSLParameters();
-			}
 			// HTTPS works for any TCP connection.
 			// It checks SAN (Subject Alternative Name) as well as CN.
 			sslParameters.setEndpointIdentificationAlgorithm("HTTPS");
@@ -131,11 +128,11 @@ public class DefaultTcpNioSSLConnectionSupport extends AbstractTcpConnectionSupp
 
 		@Override
 		protected InputStream inputStream() {
-			InputStream wrapped = super.inputStream();
+			InputStream wrappedStream = super.inputStream();
 			// It shouldn't be possible for the wrapped stream to change but, just in case...
-			if (this.pushbackStream == null || wrapped != this.wrapped) {
-				this.pushbackStream = new PushbackInputStream(wrapped, this.pushbackBufferSize);
-				this.wrapped = wrapped;
+			if (this.pushbackStream == null || !wrappedStream.equals(this.wrapped)) {
+				this.pushbackStream = new PushbackInputStream(wrappedStream, this.pushbackBufferSize);
+				this.wrapped = wrappedStream;
 			}
 			return this.pushbackStream;
 		}

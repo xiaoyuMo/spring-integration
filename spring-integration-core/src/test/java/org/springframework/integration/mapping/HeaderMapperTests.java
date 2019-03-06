@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,7 @@
 
 package org.springframework.integration.mapping;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNull;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -34,11 +32,14 @@ import org.springframework.integration.mapping.AbstractHeaderMapper.HeaderMatche
 import org.springframework.integration.mapping.AbstractHeaderMapper.PatternBasedHeaderMatcher;
 import org.springframework.integration.mapping.AbstractHeaderMapper.PrefixBasedMatcher;
 import org.springframework.integration.mapping.AbstractHeaderMapper.SinglePatternBasedHeaderMatcher;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.MessageHeaders;
 import org.springframework.util.StringUtils;
 
 /**
  * @author Stephane Nicoll
+ * @author Artem Bilan
+ *
  * @since 4.1
  */
 public class HeaderMapperTests {
@@ -50,10 +51,10 @@ public class HeaderMapperTests {
 		GenericTestProperties properties = createSimpleGenericTestProperties();
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromRequest(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertEquals("request-123", attributes.get(GenericTestHeaders.REQUEST_ONLY));
-		assertFalse(attributes.containsKey(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("Wrong number of mapped header(s)", 2, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.get(GenericTestHeaders.REQUEST_ONLY)).isEqualTo("request-123");
+		assertThat(attributes.containsKey(GenericTestHeaders.REPLY_ONLY)).isFalse();
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(2);
 	}
 
 	@Test
@@ -62,11 +63,11 @@ public class HeaderMapperTests {
 		GenericTestProperties properties = createSimpleGenericTestProperties();
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromRequest(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertEquals("request-123", attributes.get(GenericTestHeaders.REQUEST_ONLY));
-		assertEquals("reply-123", attributes.get(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("bar", attributes.get("foo"));
-		assertEquals("Wrong number of mapped header(s)", 4, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.get(GenericTestHeaders.REQUEST_ONLY)).isEqualTo("request-123");
+		assertThat(attributes.get(GenericTestHeaders.REPLY_ONLY)).isEqualTo("reply-123");
+		assertThat(attributes.get("foo")).isEqualTo("bar");
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(4);
 	}
 
 	@Test
@@ -75,11 +76,11 @@ public class HeaderMapperTests {
 		GenericTestProperties properties = createSimpleGenericTestProperties();
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromRequest(properties);
-		assertEquals(null, attributes.get(GenericTestHeaders.APP_ID));
-		assertEquals(null, attributes.get(GenericTestHeaders.REQUEST_ONLY));
-		assertEquals("reply-123", attributes.get(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("bar", attributes.get("foo"));
-		assertEquals("Wrong number of mapped header(s)", 2, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isNull();
+		assertThat(attributes.get(GenericTestHeaders.REQUEST_ONLY)).isNull();
+		assertThat(attributes.get(GenericTestHeaders.REPLY_ONLY)).isEqualTo("reply-123");
+		assertThat(attributes.get("foo")).isEqualTo("bar");
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(2);
 	}
 
 	@Test
@@ -90,12 +91,12 @@ public class HeaderMapperTests {
 		properties.setUserDefinedHeader("something-else", "bar");
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromRequest(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertEquals("request-123", attributes.get(GenericTestHeaders.REQUEST_ONLY));
-		assertFalse(attributes.containsKey(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("bar", attributes.get("foo"));
-		assertEquals("bar", attributes.get("foo2"));
-		assertEquals("Wrong number of mapped header(s)", 4, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.get(GenericTestHeaders.REQUEST_ONLY)).isEqualTo("request-123");
+		assertThat(attributes.containsKey(GenericTestHeaders.REPLY_ONLY)).isFalse();
+		assertThat(attributes.get("foo")).isEqualTo("bar");
+		assertThat(attributes.get("foo2")).isEqualTo("bar");
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(4);
 	}
 
 	@Test
@@ -106,10 +107,10 @@ public class HeaderMapperTests {
 		properties.setUserDefinedHeader("something-else", "bar");
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromRequest(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertEquals("request-123", attributes.get(GenericTestHeaders.REQUEST_ONLY));
-		assertFalse(attributes.containsKey(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("Wrong number of mapped header(s)", 2, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.get(GenericTestHeaders.REQUEST_ONLY)).isEqualTo("request-123");
+		assertThat(attributes.containsKey(GenericTestHeaders.REPLY_ONLY)).isFalse();
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(2);
 	}
 
 	@Test
@@ -117,10 +118,10 @@ public class HeaderMapperTests {
 		GenericTestProperties properties = createSimpleGenericTestProperties();
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromReply(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertFalse(attributes.containsKey(GenericTestHeaders.REQUEST_ONLY));
-		assertEquals("reply-123", attributes.get(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("Wrong number of mapped header(s)", 2, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.containsKey(GenericTestHeaders.REQUEST_ONLY)).isFalse();
+		assertThat(attributes.get(GenericTestHeaders.REPLY_ONLY)).isEqualTo("reply-123");
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(2);
 	}
 
 	@Test
@@ -129,11 +130,11 @@ public class HeaderMapperTests {
 		GenericTestProperties properties = createSimpleGenericTestProperties();
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromReply(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertEquals("request-123", attributes.get(GenericTestHeaders.REQUEST_ONLY));
-		assertEquals("reply-123", attributes.get(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("bar", attributes.get("foo"));
-		assertEquals("Wrong number of mapped header(s)", 4, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.get(GenericTestHeaders.REQUEST_ONLY)).isEqualTo("request-123");
+		assertThat(attributes.get(GenericTestHeaders.REPLY_ONLY)).isEqualTo("reply-123");
+		assertThat(attributes.get("foo")).isEqualTo("bar");
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(4);
 	}
 
 	@Test
@@ -145,12 +146,12 @@ public class HeaderMapperTests {
 		properties.setUserDefinedHeader("something-else", "bar");
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromReply(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertFalse(attributes.containsKey(GenericTestHeaders.REQUEST_ONLY));
-		assertEquals("reply-123", attributes.get(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("bar", attributes.get("foo"));
-		assertEquals("bar", attributes.get("foo2"));
-		assertEquals("Wrong number of mapped header(s)", 4, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.containsKey(GenericTestHeaders.REQUEST_ONLY)).isFalse();
+		assertThat(attributes.get(GenericTestHeaders.REPLY_ONLY)).isEqualTo("reply-123");
+		assertThat(attributes.get("foo")).isEqualTo("bar");
+		assertThat(attributes.get("foo2")).isEqualTo("bar");
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(4);
 	}
 
 	@Test
@@ -162,10 +163,10 @@ public class HeaderMapperTests {
 		properties.setUserDefinedHeader("something-else", "bar");
 
 		Map<String, Object> attributes = this.mapper.toHeadersFromReply(properties);
-		assertEquals("appId", attributes.get(GenericTestHeaders.APP_ID));
-		assertFalse(attributes.containsKey(GenericTestHeaders.REQUEST_ONLY));
-		assertEquals("reply-123", attributes.get(GenericTestHeaders.REPLY_ONLY));
-		assertEquals("Wrong number of mapped header(s)", 2, attributes.size());
+		assertThat(attributes.get(GenericTestHeaders.APP_ID)).isEqualTo("appId");
+		assertThat(attributes.containsKey(GenericTestHeaders.REQUEST_ONLY)).isFalse();
+		assertThat(attributes.get(GenericTestHeaders.REPLY_ONLY)).isEqualTo("reply-123");
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(2);
 	}
 
 	@Test
@@ -180,9 +181,9 @@ public class HeaderMapperTests {
 
 		Map<String, Object> attributes = customMapper.toHeadersFromReply(properties);
 		// foo custom header and app Id not mapped
-		assertFalse(attributes.containsKey(GenericTestHeaders.APP_ID));
-		assertFalse(attributes.containsKey("foo"));
-		assertEquals("Wrong number of mapped header(s)", 1, attributes.size());
+		assertThat(attributes.containsKey(GenericTestHeaders.APP_ID)).isFalse();
+		assertThat(attributes.containsKey("foo")).isFalse();
+		assertThat(attributes.size()).as("Wrong number of mapped header(s)").isEqualTo(1);
 	}
 
 	private GenericTestProperties createSimpleGenericTestProperties() {
@@ -200,12 +201,12 @@ public class HeaderMapperTests {
 		MessageHeaders messageHeaders = createSimpleMessageHeaders();
 		GenericTestProperties properties = new GenericTestProperties();
 		this.mapper.fromHeadersToRequest(messageHeaders, properties);
-		assertEquals("myAppId", properties.getAppId());
-		assertNull(properties.getTransactionSize());
-		assertEquals(true, properties.getRedelivered());
-		assertEquals("request-456", properties.getRequestOnly());
-		assertNull(properties.getReplyOnly());
-		assertEquals(0, properties.getUserDefinedHeaders().size());
+		assertThat(properties.getAppId()).isEqualTo("myAppId");
+		assertThat(properties.getTransactionSize()).isNull();
+		assertThat(properties.getRedelivered()).isEqualTo(true);
+		assertThat(properties.getRequestOnly()).isEqualTo("request-456");
+		assertThat(properties.getReplyOnly()).isNull();
+		assertThat(properties.getUserDefinedHeaders().size()).isEqualTo(0);
 	}
 
 	@Test
@@ -214,13 +215,13 @@ public class HeaderMapperTests {
 		MessageHeaders messageHeaders = createSimpleMessageHeaders();
 		GenericTestProperties properties = new GenericTestProperties();
 		this.mapper.fromHeadersToRequest(messageHeaders, properties);
-		assertEquals("myAppId", properties.getAppId());
-		assertNull(properties.getTransactionSize());
-		assertEquals(true, properties.getRedelivered());
-		assertEquals("request-456", properties.getRequestOnly());
-		assertEquals("reply-456", properties.getReplyOnly());
-		assertEquals("bar", properties.getUserDefinedHeaders().get("foo"));
-		assertEquals(1, properties.getUserDefinedHeaders().size());
+		assertThat(properties.getAppId()).isEqualTo("myAppId");
+		assertThat(properties.getTransactionSize()).isNull();
+		assertThat(properties.getRedelivered()).isEqualTo(true);
+		assertThat(properties.getRequestOnly()).isEqualTo("request-456");
+		assertThat(properties.getReplyOnly()).isEqualTo("reply-456");
+		assertThat(properties.getUserDefinedHeaders().get("foo")).isEqualTo("bar");
+		assertThat(properties.getUserDefinedHeaders().size()).isEqualTo(1);
 	}
 
 	@Test
@@ -229,13 +230,13 @@ public class HeaderMapperTests {
 		MessageHeaders messageHeaders = createSimpleMessageHeaders();
 		GenericTestProperties properties = new GenericTestProperties();
 		this.mapper.fromHeadersToRequest(messageHeaders, properties);
-		assertEquals("myAppId", properties.getAppId());
-		assertNull(properties.getTransactionSize());
-		assertEquals(true, properties.getRedelivered());
-		assertEquals("request-456", properties.getRequestOnly());
-		assertNull(properties.getReplyOnly());
-		assertEquals("bar", properties.getUserDefinedHeaders().get("foo"));
-		assertEquals(1, properties.getUserDefinedHeaders().size());
+		assertThat(properties.getAppId()).isEqualTo("myAppId");
+		assertThat(properties.getTransactionSize()).isNull();
+		assertThat(properties.getRedelivered()).isEqualTo(true);
+		assertThat(properties.getRequestOnly()).isEqualTo("request-456");
+		assertThat(properties.getReplyOnly()).isNull();
+		assertThat(properties.getUserDefinedHeaders().get("foo")).isEqualTo("bar");
+		assertThat(properties.getUserDefinedHeaders().size()).isEqualTo(1);
 	}
 
 	@Test
@@ -255,14 +256,14 @@ public class HeaderMapperTests {
 		MessageHeaders messageHeaders = new MessageHeaders(headers);
 		GenericTestProperties properties = new GenericTestProperties();
 		this.mapper.fromHeadersToRequest(messageHeaders, properties);
-		assertEquals("myAppId", properties.getAppId());
-		assertNull(properties.getTransactionSize());
-		assertEquals(true, properties.getRedelivered());
-		assertEquals("request-456", properties.getRequestOnly());
-		assertNull(properties.getReplyOnly());
-		assertEquals("bar", properties.getUserDefinedHeaders().get("bar"));
-		assertEquals("qux", properties.getUserDefinedHeaders().get("!qux"));
-		assertEquals(2, properties.getUserDefinedHeaders().size());
+		assertThat(properties.getAppId()).isEqualTo("myAppId");
+		assertThat(properties.getTransactionSize()).isNull();
+		assertThat(properties.getRedelivered()).isEqualTo(true);
+		assertThat(properties.getRequestOnly()).isEqualTo("request-456");
+		assertThat(properties.getReplyOnly()).isNull();
+		assertThat(properties.getUserDefinedHeaders().get("bar")).isEqualTo("bar");
+		assertThat(properties.getUserDefinedHeaders().get("!qux")).isEqualTo("qux");
+		assertThat(properties.getUserDefinedHeaders().size()).isEqualTo(2);
 	}
 
 	@Test
@@ -270,12 +271,12 @@ public class HeaderMapperTests {
 		MessageHeaders messageHeaders = createSimpleMessageHeaders();
 		GenericTestProperties properties = new GenericTestProperties();
 		this.mapper.fromHeadersToReply(messageHeaders, properties);
-		assertEquals("myAppId", properties.getAppId());
-		assertNull(properties.getTransactionSize());
-		assertEquals(true, properties.getRedelivered());
-		assertNull(properties.getRequestOnly());
-		assertEquals("reply-456", properties.getReplyOnly());
-		assertEquals(0, properties.getUserDefinedHeaders().size());
+		assertThat(properties.getAppId()).isEqualTo("myAppId");
+		assertThat(properties.getTransactionSize()).isNull();
+		assertThat(properties.getRedelivered()).isEqualTo(true);
+		assertThat(properties.getRequestOnly()).isNull();
+		assertThat(properties.getReplyOnly()).isEqualTo("reply-456");
+		assertThat(properties.getUserDefinedHeaders().size()).isEqualTo(0);
 	}
 
 	@Test
@@ -284,13 +285,13 @@ public class HeaderMapperTests {
 		MessageHeaders messageHeaders = createSimpleMessageHeaders();
 		GenericTestProperties properties = new GenericTestProperties();
 		this.mapper.fromHeadersToReply(messageHeaders, properties);
-		assertEquals("myAppId", properties.getAppId());
-		assertNull(properties.getTransactionSize());
-		assertEquals(true, properties.getRedelivered());
-		assertEquals("request-456", properties.getRequestOnly());
-		assertEquals("reply-456", properties.getReplyOnly());
-		assertEquals("bar", properties.getUserDefinedHeaders().get("foo"));
-		assertEquals(1, properties.getUserDefinedHeaders().size());
+		assertThat(properties.getAppId()).isEqualTo("myAppId");
+		assertThat(properties.getTransactionSize()).isNull();
+		assertThat(properties.getRedelivered()).isEqualTo(true);
+		assertThat(properties.getRequestOnly()).isEqualTo("request-456");
+		assertThat(properties.getReplyOnly()).isEqualTo("reply-456");
+		assertThat(properties.getUserDefinedHeaders().get("foo")).isEqualTo("bar");
+		assertThat(properties.getUserDefinedHeaders().size()).isEqualTo(1);
 	}
 
 
@@ -300,17 +301,17 @@ public class HeaderMapperTests {
 		MessageHeaders messageHeaders = createSimpleMessageHeaders();
 		GenericTestProperties properties = new GenericTestProperties();
 		this.mapper.fromHeadersToReply(messageHeaders, properties);
-		assertEquals("myAppId", properties.getAppId());
-		assertNull(properties.getTransactionSize());
-		assertEquals(true, properties.getRedelivered());
-		assertNull(properties.getRequestOnly());
-		assertEquals("reply-456", properties.getReplyOnly());
-		assertEquals("bar", properties.getUserDefinedHeaders().get("foo"));
-		assertEquals(1, properties.getUserDefinedHeaders().size());
+		assertThat(properties.getAppId()).isEqualTo("myAppId");
+		assertThat(properties.getTransactionSize()).isNull();
+		assertThat(properties.getRedelivered()).isEqualTo(true);
+		assertThat(properties.getRequestOnly()).isNull();
+		assertThat(properties.getReplyOnly()).isEqualTo("reply-456");
+		assertThat(properties.getUserDefinedHeaders().get("foo")).isEqualTo("bar");
+		assertThat(properties.getUserDefinedHeaders().size()).isEqualTo(1);
 	}
 
 	public MessageHeaders createSimpleMessageHeaders() {
-		Map<String, Object> headers = new HashMap<String, Object>();
+		Map<String, Object> headers = new HashMap<>();
 		headers.put(GenericTestHeaders.APP_ID, "myAppId");
 		headers.put(GenericTestHeaders.REDELIVERED, true);
 		headers.put(GenericTestHeaders.REQUEST_ONLY, "request-456");
@@ -324,7 +325,6 @@ public class HeaderMapperTests {
 
 	@Test
 	public void prefixHeaderPatternMatching() {
-		@SuppressWarnings("deprecation")
 		PatternBasedHeaderMatcher strategy =
 				new PatternBasedHeaderMatcher(Collections.singleton("fOo*"));
 
@@ -338,7 +338,6 @@ public class HeaderMapperTests {
 
 	@Test
 	public void suffixHeaderPatternMatching() {
-		@SuppressWarnings("deprecation")
 		PatternBasedHeaderMatcher strategy =
 				new PatternBasedHeaderMatcher(Collections.singleton("*fOo"));
 
@@ -431,11 +430,11 @@ public class HeaderMapperTests {
 
 
 	protected void assertMapping(HeaderMatcher strategy, String candidate, boolean match) {
-		assertEquals("Wrong mapping result for " + candidate + "", match, strategy.matchHeader(candidate));
+		assertThat(strategy.matchHeader(candidate)).as("Wrong mapping result for " + candidate + "").isEqualTo(match);
 	}
 
 
-	private static abstract class GenericTestHeaders {
+	private abstract static class GenericTestHeaders {
 
 		public static final String PREFIX = "generic_";
 
@@ -464,7 +463,7 @@ public class HeaderMapperTests {
 
 		@Override
 		protected Map<String, Object> extractStandardHeaders(GenericTestProperties source) {
-			Map<String, Object> result = new HashMap<String, Object>();
+			Map<String, Object> result = new HashMap<>();
 			if (StringUtils.hasText(source.getAppId())) {
 				result.put(GenericTestHeaders.APP_ID, source.getAppId());
 			}
@@ -547,6 +546,7 @@ public class HeaderMapperTests {
 			this.appId = appId;
 		}
 
+		@Nullable
 		public Integer getTransactionSize() {
 			return transactionSize;
 		}
@@ -555,6 +555,7 @@ public class HeaderMapperTests {
 			this.transactionSize = transactionSize;
 		}
 
+		@Nullable
 		public Boolean getRedelivered() {
 			return redelivered;
 		}

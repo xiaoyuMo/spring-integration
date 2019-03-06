@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2010 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,7 @@
 
 package org.springframework.integration.file.locking;
 
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.junit.Assert.assertThat;
-import static org.springframework.integration.test.matcher.PayloadMatcher.hasPayload;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,19 +29,22 @@ import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.integration.file.FileReadingMessageSource;
-import org.springframework.test.context.ContextConfiguration;
+import org.springframework.messaging.Message;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.junit4.SpringRunner;
 
 /**
  * @author Iwein Fuld
+ * @author Artem Bilan
  */
-@ContextConfiguration
-@RunWith(org.springframework.test.context.junit4.SpringJUnit4ClassRunner.class)
+@RunWith(SpringRunner.class)
+@DirtiesContext
 public class FileLockingWithMultipleSourcesIntegrationTests {
 
 	private static File workdir;
 
 	@BeforeClass
-	public static void setupWorkDirectory() throws Exception {
+	public static void setupWorkDirectory() {
 		workdir = new File(new File(System.getProperty("java.io.tmpdir")),
 				FileLockingWithMultipleSourcesIntegrationTests.class.getSimpleName());
 		workdir.mkdir();
@@ -72,8 +73,11 @@ public class FileLockingWithMultipleSourcesIntegrationTests {
 	public void filePickedUpOnceWithDistinctFilters() throws IOException {
 		File testFile = new File(workdir, "test");
 		testFile.createNewFile();
-		assertThat(fileSource1.receive(), hasPayload(testFile));
-		assertThat(fileSource2.receive(), nullValue());
+		assertThat(this.fileSource1.receive())
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo(testFile);
+		assertThat(this.fileSource2.receive()).isNull();
 		FileChannelCache.closeChannelFor(testFile);
 	}
 
@@ -81,8 +85,14 @@ public class FileLockingWithMultipleSourcesIntegrationTests {
 	public void filePickedUpTwiceWithSharedFilter() throws Exception {
 		File testFile = new File(workdir, "test");
 		testFile.createNewFile();
-		assertThat(fileSource1.receive(), hasPayload(testFile));
-		assertThat(fileSource3.receive(), hasPayload(testFile));
+		assertThat(this.fileSource1.receive())
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo(testFile);
+		assertThat(this.fileSource3.receive())
+				.isNotNull()
+				.extracting(Message::getPayload)
+				.isEqualTo(testFile);
 		FileChannelCache.closeChannelFor(testFile);
 	}
 

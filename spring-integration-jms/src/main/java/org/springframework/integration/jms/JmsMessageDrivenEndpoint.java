@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,7 +36,8 @@ import org.springframework.util.Assert;
  * @author Gary Russell
  * @author Artem Bilan
  */
-public class JmsMessageDrivenEndpoint extends MessageProducerSupport implements DisposableBean, OrderlyShutdownCapable {
+public class JmsMessageDrivenEndpoint extends MessageProducerSupport
+		implements DisposableBean, OrderlyShutdownCapable {
 
 	private final AbstractMessageListenerContainer listenerContainer;
 
@@ -73,7 +74,7 @@ public class JmsMessageDrivenEndpoint extends MessageProducerSupport implements 
 			ChannelPublishingJmsMessageListener listener, boolean externalContainer) {
 		Assert.notNull(listenerContainer, "listener container must not be null");
 		Assert.notNull(listener, "listener must not be null");
-		if (logger.isWarnEnabled() && listenerContainer.getMessageListener() != null) {
+		if (listenerContainer.getMessageListener() != null) {
 			logger.warn("The provided listener container already has a MessageListener implementation, " +
 					"but it will be overridden by the provided ChannelPublishingJmsMessageListener.");
 		}
@@ -172,12 +173,12 @@ public class JmsMessageDrivenEndpoint extends MessageProducerSupport implements 
 		if (!this.listenerContainer.isActive()) {
 			this.listenerContainer.afterPropertiesSet();
 		}
-		String sessionAcknowledgeMode = this.sessionAcknowledgeMode;
-		if (sessionAcknowledgeMode == null && !this.externalContainer
+		String sessionAckeMode = this.sessionAcknowledgeMode;
+		if (sessionAckeMode == null && !this.externalContainer
 				&& DefaultMessageListenerContainer.class.isAssignableFrom(this.listenerContainer.getClass())) {
-			sessionAcknowledgeMode = JmsAdapterUtils.SESSION_TRANSACTED_STRING;
+			sessionAckeMode = JmsAdapterUtils.SESSION_TRANSACTED_STRING;
 		}
-		Integer acknowledgeMode = JmsAdapterUtils.parseAcknowledgeMode(sessionAcknowledgeMode);
+		Integer acknowledgeMode = JmsAdapterUtils.parseAcknowledgeMode(sessionAckeMode);
 		if (acknowledgeMode != null) {
 			if (JmsAdapterUtils.SESSION_TRANSACTED == acknowledgeMode) {
 				this.listenerContainer.setSessionTransacted(true);
@@ -212,12 +213,17 @@ public class JmsMessageDrivenEndpoint extends MessageProducerSupport implements 
 	}
 
 	@Override
-	public void destroy() throws Exception {
+	public void destroy() {
 		if (this.isRunning()) {
 			this.stop();
 		}
 		this.listenerContainer.destroy();
-		super.destroy();
+		try {
+			super.destroy();
+		}
+		catch (Exception e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	@Override

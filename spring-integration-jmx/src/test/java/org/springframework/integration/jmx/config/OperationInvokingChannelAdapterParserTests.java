@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,35 +16,39 @@
 
 package org.springframework.integration.jmx.config;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.BDDMockito.willReturn;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
+import org.apache.commons.logging.Log;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.integration.handler.advice.AbstractRequestHandlerAdvice;
 import org.springframework.integration.jmx.JmxHeaders;
+import org.springframework.integration.jmx.OperationInvokingMessageHandler;
 import org.springframework.integration.support.MessageBuilder;
+import org.springframework.integration.test.util.TestUtils;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
-import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+import org.springframework.test.context.junit4.SpringRunner;
 
 /**
  * @author Mark Fisher
  * @author Oleg Zhurakousky
  * @author Artem Bilan
  * @author Gary Russell
+ *
  * @since 2.0
  */
-@ContextConfiguration
-@RunWith(SpringJUnit4ClassRunner.class)
+@RunWith(SpringRunner.class)
 @DirtiesContext
 public class OperationInvokingChannelAdapterParserTests {
 
@@ -52,18 +56,29 @@ public class OperationInvokingChannelAdapterParserTests {
 	private MessageChannel input;
 
 	@Autowired
+	private MessageChannel input2;
+
+	@Autowired
 	private MessageChannel operationWithNonNullReturn;
 
 	@Autowired
-	private MessageChannel 	operationInvokingWithinChain;
+	private MessageChannel operationInvokingWithinChain;
 
 	@Autowired
-	private MessageChannel 	operationWithinChainWithNonNullReturn;
+	private MessageChannel operationWithinChainWithNonNullReturn;
 
 	@Autowired
 	private TestBean testBean;
 
-	private static volatile int adviceCalled;
+	@Autowired
+	@Qualifier("operationWithNonNullReturn.handler")
+	private OperationInvokingMessageHandler operationWithNonNullReturnHandler;
+
+	@Autowired
+	@Qualifier("chainWithOperation$child.operationWithinChainWithNonNullReturnHandler.handler")
+	private OperationInvokingMessageHandler operationWithinChainWithNonNullReturnHandler;
+
+	private static int adviceCalled;
 
 	@After
 	public void resetLists() {
@@ -72,62 +87,76 @@ public class OperationInvokingChannelAdapterParserTests {
 
 
 	@Test
-	public void adapterWithDefaults() throws Exception {
-		assertEquals(0, testBean.messages.size());
-		input.send(new GenericMessage<String>("test1"));
-		input.send(new GenericMessage<String>("test2"));
-		input.send(new GenericMessage<String>("test3"));
-		assertEquals(3, testBean.messages.size());
-		assertEquals(3, adviceCalled);
+	public void adapterWithDefaults() {
+		assertThat(testBean.messages.size()).isEqualTo(0);
+		input.send(new GenericMessage<>("test1"));
+		input.send(new GenericMessage<>("test2"));
+		input.send(new GenericMessage<>("test3"));
+		assertThat(testBean.messages.size()).isEqualTo(3);
+		assertThat(adviceCalled).isEqualTo(3);
 	}
 
 	@Test
-	public void testOutboundAdapterWithNonNullReturn() throws Exception {
-		try {
-			operationWithNonNullReturn.send(new GenericMessage<String>("test1"));
-			fail("Expect MessagingException about non-null return");
-		}
-		catch (Exception e) {
-			assertTrue(e instanceof MessagingException);
-//			TODO Add check exception's message about 'must have a void return' after <jmx:operation-invoking-channel-adapter/> refactoring
-		}
+	public void testOutboundAdapterWithNonNullReturn() {
+		Log logger = spy(TestUtils.getPropertyValue(this.operationWithNonNullReturnHandler, "logger", Log.class));
+
+		willReturn(true)
+				.given(logger)
+				.isWarnEnabled();
+
+		new DirectFieldAccessor(this.operationWithNonNullReturnHandler)
+				.setPropertyValue("logger", logger);
+
+		this.operationWithNonNullReturn.send(new GenericMessage<>("test1"));
+
+		verify(logger).warn("This component doesn't expect a reply. " +
+				"The MBean operation 'testWithReturn' result '[test1]' for " +
+				"'org.springframework.integration.jmx.config:type=TestBean,name=testBeanAdapter' is ignored.");
 	}
 
 	@Test
 	// Headers should be ignored
-	public void adapterWitJmxHeaders() throws Exception {
-		assertEquals(0, testBean.messages.size());
-		input.send(this.createMessage("1"));
-		input.send(this.createMessage("2"));
-		input.send(this.createMessage("3"));
-		assertEquals(3, testBean.messages.size());
+	public void adapterWitJmxHeaders() {
+		assertThat(testBean.messages.size()).isEqualTo(0);
+		this.input2.send(createMessage("1"));
+		this.input2.send(createMessage("2"));
+		this.input2.send(createMessage("3"));
+		assertThat(testBean.messages.size()).isEqualTo(3);
 	}
 
 	@Test //INT-2275
-	public void testInvokeOperationWithinChain() throws Exception {
-		operationInvokingWithinChain.send(new GenericMessage<String>("test1"));
-		assertEquals(1, testBean.messages.size());
+	public void testInvokeOperationWithinChain() {
+		operationInvokingWithinChain.send(new GenericMessage<>("test1"));
+		assertThat(testBean.messages.size()).isEqualTo(1);
 	}
 
-	@Test //INT-2275
-	public void testOperationWithinChainWithNonNullReturn() throws Exception {
-		try {
-			operationWithinChainWithNonNullReturn.send(new GenericMessage<String>("test1"));
-			fail("Expect MessagingException about non-null return");
-		}
-		catch (Exception e) {
-			assertTrue(e instanceof MessagingException);
-//			TODO Add check exception's message about 'must have a void return' after <jmx:operation-invoking-channel-adapter/> refactoring
-		}
+	@Test
+	public void testOperationWithinChainWithNonNullReturn() {
+		Log logger =
+				spy(TestUtils.getPropertyValue(this.operationWithinChainWithNonNullReturnHandler, "logger",
+						Log.class));
+
+		willReturn(true)
+				.given(logger)
+				.isWarnEnabled();
+
+		new DirectFieldAccessor(this.operationWithinChainWithNonNullReturnHandler)
+				.setPropertyValue("logger", logger);
+		this.operationWithinChainWithNonNullReturn.send(new GenericMessage<>("test1"));
+		verify(logger).warn("This component doesn't expect a reply. " +
+				"The MBean operation 'testWithReturn' result '[test1]' for " +
+				"'org.springframework.integration.jmx.config:type=TestBean,name=testBeanAdapter' is ignored.");
 	}
 
 	private Message<?> createMessage(String payload) {
 		return MessageBuilder.withPayload(payload)
-			.setHeader(JmxHeaders.OBJECT_NAME, "org.springframework.integration.jmx.config:type=TestBean,name=foo")
-			.setHeader(JmxHeaders.OPERATION_NAME, "blah").build();
+				.setHeader(JmxHeaders.OBJECT_NAME,
+						"org.springframework.integration.jmx.config:type=TestBean,name=testBeanAdapter")
+				.setHeader(JmxHeaders.OPERATION_NAME, "test")
+				.build();
 	}
 
-	public static class FooADvice extends AbstractRequestHandlerAdvice {
+	public static class FooAdvice extends AbstractRequestHandlerAdvice {
 
 		@Override
 		protected Object doInvoke(ExecutionCallback callback, Object target, Message<?> message) throws Exception {
@@ -136,4 +165,5 @@ public class OperationInvokingChannelAdapterParserTests {
 		}
 
 	}
+
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,13 +26,13 @@ import org.springframework.integration.context.IntegrationObjectSupport;
 import org.springframework.integration.expression.ExpressionUtils;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.util.Assert;
 
 /**
  * This implementation of {@link TransactionSynchronizationFactory}
  * allows you to configure SpEL expressions, with their execution being coordinated
- * (synchronized) with a transaction - see {@link TransactionSynchronization}.
+ * (synchronized) with a transaction - see
+ * {@link org.springframework.transaction.support.TransactionSynchronization}.
  * Expressions for {@code before-commit}, {@code after-commit}, and {@code after-rollback}
  * are supported, together with a {@code channel} for each where the evaluation result
  * (if any) will be sent.
@@ -107,21 +107,24 @@ public class ExpressionEvaluatingTransactionSynchronizationProcessor extends Int
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		if (this.evaluationContext == null) {
 			this.evaluationContext = createEvaluationContext();
 		}
 	}
 
+	@Override
 	public void processBeforeCommit(IntegrationResourceHolder holder) {
 		doProcess(holder, this.beforeCommitExpression, this.beforeCommitChannel, "beforeCommit");
 	}
 
+	@Override
 	public void processAfterCommit(IntegrationResourceHolder holder) {
 		doProcess(holder, this.afterCommitExpression, this.afterCommitChannel, "afterCommit");
 	}
 
+	@Override
 	public void processAfterRollback(IntegrationResourceHolder holder) {
 		doProcess(holder, this.afterRollbackExpression, this.afterRollbackChannel, "afterRollback");
 	}
@@ -198,15 +201,15 @@ public class ExpressionEvaluatingTransactionSynchronizationProcessor extends Int
 	 */
 	private EvaluationContext prepareEvaluationContextToUse(Object resource) {
 		if (resource != null) {
-			EvaluationContext evaluationContext = createEvaluationContext();
+			EvaluationContext evaluationContextWithVariables = createEvaluationContext();
 			if (resource instanceof IntegrationResourceHolder) {
 				IntegrationResourceHolder holder = (IntegrationResourceHolder) resource;
 				for (Entry<String, Object> entry : holder.getAttributes().entrySet()) {
 					String key = entry.getKey();
-					evaluationContext.setVariable(key, entry.getValue());
+					evaluationContextWithVariables.setVariable(key, entry.getValue());
 				}
 			}
-			return evaluationContext;
+			return evaluationContextWithVariables;
 		}
 		else {
 			return this.evaluationContext;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2016 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,13 @@
 
 package org.springframework.integration.json;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import org.hamcrest.Matchers;
 import org.junit.Test;
 
-import org.springframework.integration.support.json.BoonJsonObjectMapper;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.GenericMessage;
 
@@ -42,7 +39,7 @@ public class JsonTransformersSymmetricalTests {
 		TestPerson person = new TestPerson("John", "Doe", 42);
 		person.setAddress(new TestAddress(123, "Main Street"));
 
-		List<TestPerson> payload = new ArrayList<TestPerson>();
+		List<TestPerson> payload = new ArrayList<>();
 		payload.add(person);
 
 		ObjectToJsonTransformer objectToJsonTransformer = new ObjectToJsonTransformer();
@@ -50,27 +47,8 @@ public class JsonTransformersSymmetricalTests {
 
 		JsonToObjectTransformer jsonToObjectTransformer = new JsonToObjectTransformer();
 		Object result = jsonToObjectTransformer.transform(jsonMessage).getPayload();
-		assertThat(result, Matchers.instanceOf(List.class));
-		assertEquals(person, ((List<?>) result).get(0));
+		assertThat(result).isInstanceOf(List.class);
+		assertThat(((List<?>) result).get(0)).isEqualTo(person);
 	}
-
-	@Test
-	public void testBoonObjectToJson_JsonToObject() {
-
-		TestPerson person = new TestPerson("John", "Doe", 42);
-		person.setAddress(new TestAddress(123, "Main Street"));
-
-		List<TestPerson> payload = new ArrayList<TestPerson>();
-		payload.add(person);
-
-		ObjectToJsonTransformer objectToJsonTransformer = new ObjectToJsonTransformer(new BoonJsonObjectMapper());
-		Message<?> jsonMessage = objectToJsonTransformer.transform(new GenericMessage<Object>(payload));
-
-		JsonToObjectTransformer jsonToObjectTransformer = new JsonToObjectTransformer(new BoonJsonObjectMapper());
-		Object result = jsonToObjectTransformer.transform(jsonMessage).getPayload();
-		assertThat(result, Matchers.instanceOf(List.class));
-		assertEquals(person, ((List<?>) result).get(0));
-	}
-
 
 }

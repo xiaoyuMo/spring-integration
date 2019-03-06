@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,12 @@
 
 package org.springframework.integration.ftp.inbound;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.Closeable;
 import java.io.InputStream;
 import java.util.Comparator;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -52,6 +49,8 @@ import org.springframework.integration.ftp.session.FtpFileInfo;
 import org.springframework.integration.ftp.session.FtpRemoteFileTemplate;
 import org.springframework.integration.metadata.SimpleMetadataStore;
 import org.springframework.integration.scheduling.PollerMetadata;
+import org.springframework.integration.test.util.OnlyOnceTrigger;
+import org.springframework.integration.test.util.TestUtils;
 import org.springframework.integration.transformer.StreamTransformer;
 import org.springframework.messaging.Message;
 import org.springframework.scheduling.support.PeriodicTrigger;
@@ -92,38 +91,42 @@ public class FtpStreamingMessageSourceTests extends FtpTestSupport {
 	public void testAllContents() {
 		this.adapter.start();
 		Message<byte[]> received = (Message<byte[]>) this.data.receive(10000);
-		assertNotNull(received);
-		assertThat(new String(received.getPayload()), equalTo("source1"));
+		assertThat(received).isNotNull();
+		assertThat(new String(received.getPayload())).isEqualTo("source1");
 		String fileInfo = (String) received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO);
-		assertThat(fileInfo, containsString("remoteDirectory\":\"ftpSource"));
-		assertThat(fileInfo, containsString("permissions\":\"-rw-------"));
-		assertThat(fileInfo, containsString("size\":7"));
-		assertThat(fileInfo, containsString("directory\":false"));
-		assertThat(fileInfo, containsString("filename\":\" ftpSource1.txt"));
-		assertThat(fileInfo, containsString("modified\":"));
-		assertThat(fileInfo, containsString("link\":false"));
+		assertThat(fileInfo).contains("remoteDirectory\":\"ftpSource");
+		assertThat(fileInfo).contains("permissions\":\"-rw-------");
+		assertThat(fileInfo).contains("size\":7");
+		assertThat(fileInfo).contains("directory\":false");
+		assertThat(fileInfo).contains("filename\":\" ftpSource1.txt");
+		assertThat(fileInfo).contains("modified\":");
+		assertThat(fileInfo).contains("link\":false");
 		received = (Message<byte[]>) this.data.receive(10000);
-		assertNotNull(received);
-		assertThat(new String(received.getPayload()), equalTo("source2"));
+		assertThat(received).isNotNull();
+		assertThat(new String(received.getPayload())).isEqualTo("source2");
 		fileInfo = (String) received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO);
-		assertThat(fileInfo, containsString("remoteDirectory\":\"ftpSource"));
-		assertThat(fileInfo, containsString("permissions\":\"-rw-------"));
-		assertThat(fileInfo, containsString("size\":7"));
-		assertThat(fileInfo, containsString("directory\":false"));
-		assertThat(fileInfo, containsString("filename\":\"ftpSource2.txt"));
-		assertThat(fileInfo, containsString("modified\":"));
-		assertThat(fileInfo, containsString("link\":false"));
+		assertThat(fileInfo).contains("remoteDirectory\":\"ftpSource");
+		assertThat(fileInfo).contains("permissions\":\"-rw-------");
+		assertThat(fileInfo).contains("size\":7");
+		assertThat(fileInfo).contains("directory\":false");
+		assertThat(fileInfo).contains("filename\":\"ftpSource2.txt");
+		assertThat(fileInfo).contains("modified\":");
+		assertThat(fileInfo).contains("link\":false");
 
 		this.adapter.stop();
 		this.source.setFileInfoJson(false);
 		this.data.purge(null);
 		this.metadataMap.clear();
+		this.adapter.setTrigger(new OnlyOnceTrigger());
+		this.adapter.setMaxMessagesPerPoll(1);
 		this.adapter.start();
 		received = (Message<byte[]>) this.data.receive(10000);
-		assertNotNull(received);
+		assertThat(received).isNotNull();
+		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO)).isInstanceOf(FtpFileInfo.class);
+		assertThat(TestUtils.getPropertyValue(source, "toBeReceived", BlockingQueue.class)).hasSize(1);
+		assertThat(this.metadataMap).hasSize(1);
 		this.adapter.stop();
-
-		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE_INFO), instanceOf(FtpFileInfo.class));
+		assertThat(TestUtils.getPropertyValue(source, "toBeReceived", BlockingQueue.class)).isEmpty();
 	}
 
 	@Test
@@ -131,9 +134,10 @@ public class FtpStreamingMessageSourceTests extends FtpTestSupport {
 		FtpStreamingMessageSource messageSource = buildSource();
 		messageSource.setFilter(new AcceptAllFileListFilter<>());
 		messageSource.afterPropertiesSet();
+		messageSource.start();
 		Message<InputStream> received = messageSource.receive();
-		assertNotNull(received);
-		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE), equalTo(" ftpSource1.txt"));
+		assertThat(received).isNotNull();
+		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE)).isEqualTo(" ftpSource1.txt");
 
 		Closeable closeableResource = StaticMessageHeaderAccessor.getCloseableResource(received);
 		if (closeableResource != null) {
@@ -146,9 +150,10 @@ public class FtpStreamingMessageSourceTests extends FtpTestSupport {
 		FtpStreamingMessageSource messageSource = buildSource();
 		messageSource.setFilter(null);
 		messageSource.afterPropertiesSet();
+		messageSource.start();
 		Message<InputStream> received = messageSource.receive();
-		assertNotNull(received);
-		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE), equalTo(" ftpSource1.txt"));
+		assertThat(received).isNotNull();
+		assertThat(received.getHeaders().get(FileHeaders.REMOTE_FILE)).isEqualTo(" ftpSource1.txt");
 
 		Closeable closeableResource = StaticMessageHeaderAccessor.getCloseableResource(received);
 		if (closeableResource != null) {
@@ -160,7 +165,6 @@ public class FtpStreamingMessageSourceTests extends FtpTestSupport {
 		FtpStreamingMessageSource messageSource = new FtpStreamingMessageSource(this.config.template(),
 				Comparator.comparing(FTPFile::getName));
 		messageSource.setRemoteDirectory("ftpSource/");
-		messageSource.setMaxFetchSize(1);
 		messageSource.setBeanFactory(this.context);
 		return messageSource;
 	}
@@ -178,7 +182,7 @@ public class FtpStreamingMessageSourceTests extends FtpTestSupport {
 		public PollerMetadata defaultPoller() {
 			PollerMetadata pollerMetadata = new PollerMetadata();
 			pollerMetadata.setTrigger(new PeriodicTrigger(500));
-			pollerMetadata.setMaxMessagesPerPoll(2000);
+			pollerMetadata.setMaxMessagesPerPoll(2);
 			return pollerMetadata;
 		}
 

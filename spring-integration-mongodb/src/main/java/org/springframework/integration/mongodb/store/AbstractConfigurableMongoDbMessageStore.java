@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2017 the original author or authors.
+ * Copyright 2014-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,13 +61,14 @@ import org.springframework.util.Assert;
  * for implementations of this class.
  *
  * @author Artem Bilan
+ *
  * @since 4.0
  */
 
 public abstract class AbstractConfigurableMongoDbMessageStore extends AbstractMessageGroupStore
 		implements BasicMessageGroupStore, InitializingBean, ApplicationContextAware {
 
-	public final static String SEQUENCE_NAME = "messagesSequence";
+	public static final String SEQUENCE_NAME = "messagesSequence";
 
 	/**
 	 * The name of the message header that stores a flag to indicate that the message has been saved. This is an
@@ -201,7 +202,7 @@ public abstract class AbstractConfigurableMongoDbMessageStore extends AbstractMe
 				new Update().inc(MessageDocumentFields.SEQUENCE, 1),
 				FindAndModifyOptions.options().returnNew(true).upsert(true),
 				Map.class, this.collectionName)
-				.get(MessageDocumentFields.SEQUENCE);
+					.get(MessageDocumentFields.SEQUENCE); // NOSONAR - never returns null
 	}
 
 	protected void addMessageDocument(final MessageDocument document) {

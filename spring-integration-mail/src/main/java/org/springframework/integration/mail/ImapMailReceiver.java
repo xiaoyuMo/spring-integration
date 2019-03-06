@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,9 @@
 
 package org.springframework.integration.mail;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
-import java.util.List;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.ScheduledFuture;
 
@@ -59,40 +59,43 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 
 	private static final int DEFAULT_CANCEL_IDLE_INTERVAL = 120000;
 
+	private static final String PROTOCOL = "imap";
+
 	private final MessageCountListener messageCountListener = new SimpleMessageCountListener();
 
 	private final IdleCanceler idleCanceler = new IdleCanceler();
 
-	private volatile boolean shouldMarkMessagesAsRead = true;
+	private boolean shouldMarkMessagesAsRead = true;
 
-	private volatile SearchTermStrategy searchTermStrategy = new DefaultSearchTermStrategy();
+	private SearchTermStrategy searchTermStrategy = new DefaultSearchTermStrategy();
 
-	private volatile long cancelIdleInterval = DEFAULT_CANCEL_IDLE_INTERVAL;
+	private long cancelIdleInterval = DEFAULT_CANCEL_IDLE_INTERVAL;
 
-	private volatile TaskScheduler scheduler;
+	private TaskScheduler scheduler;
+
+	private boolean isInternalScheduler;
 
 	private volatile ScheduledFuture<?> pingTask;
 
 	public ImapMailReceiver() {
 		super();
-		this.setProtocol("imap");
+		setProtocol(PROTOCOL);
 	}
 
 	public ImapMailReceiver(String url) {
 		super(url);
 		if (url != null) {
-			Assert.isTrue(url.toLowerCase().startsWith("imap"),
+			Assert.isTrue(url.toLowerCase().startsWith(PROTOCOL),
 					"URL must start with 'imap' for the IMAP Mail receiver.");
 		}
 		else {
-			this.setProtocol("imap");
+			setProtocol(PROTOCOL);
 		}
 	}
 
 
 	/**
 	 * Check if messages should be marked as read.
-	 *
 	 * @return true if messages should be marked as read.
 	 */
 	public Boolean isShouldMarkMessagesAsRead() {
@@ -102,7 +105,6 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 	/**
 	 * Provides a way to set custom {@link SearchTermStrategy} to compile a {@link SearchTerm}
 	 * to be applied when retrieving mail
-	 *
 	 * @param searchTermStrategy The search term strategy implementation.
 	 */
 	public void setSearchTermStrategy(SearchTermStrategy searchTermStrategy) {
@@ -112,7 +114,6 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 
 	/**
 	 * Specify if messages should be marked as read.
-	 *
 	 * @param shouldMarkMessagesAsRead true if messages should be marked as read.
 	 */
 	public void setShouldMarkMessagesAsRead(Boolean shouldMarkMessagesAsRead) {
@@ -127,20 +128,21 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 	 * @since 3.0.5
 	 */
 	public void setCancelIdleInterval(long cancelIdleInterval) {
-		this.cancelIdleInterval = cancelIdleInterval * 1000;
+		this.cancelIdleInterval = cancelIdleInterval * 1000; // NOSONAR - convert seconds to milliseconds
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		this.scheduler = getTaskScheduler();
 		if (this.scheduler == null) {
-			ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-			scheduler.initialize();
-			this.scheduler = scheduler;
+			ThreadPoolTaskScheduler tpts = new ThreadPoolTaskScheduler();
+			tpts.initialize();
+			this.scheduler = tpts;
+			this.isInternalScheduler = true;
 		}
 		Properties javaMailProperties = getJavaMailProperties();
-		for (String name : new String[]{"imap", "imaps"}) {
+		for (String name : new String[] { PROTOCOL, "imaps" }) {
 			String peek = "mail." + name + ".peek";
 			if (javaMailProperties.getProperty(peek) == null) {
 				javaMailProperties.setProperty(peek, "true");
@@ -148,31 +150,41 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 		}
 	}
 
+	@Override
+	public void destroy() {
+		super.destroy();
+		if (this.isInternalScheduler) {
+			((ThreadPoolTaskScheduler) this.scheduler).shutdown();
+		}
+		if (this.pingTask != null) {
+			this.pingTask.cancel(true);
+		}
+	}
+
 	/**
 	 * This method is unique to the IMAP receiver and only works if IMAP IDLE
 	 * is supported (see RFC 2177 for more detail).
-	 *
 	 * @throws MessagingException Any MessagingException.
 	 */
 	public void waitForNewMessages() throws MessagingException {
-		this.openFolder();
-		Folder folder = this.getFolder();
+		openFolder();
+		Folder folder = getFolder();
 		Assert.state(folder instanceof IMAPFolder,
-				"folder is not an instance of [" + IMAPFolder.class.getName() + "]");
+				() -> "folder is not an instance of [" + IMAPFolder.class.getName() + "]");
 		IMAPFolder imapFolder = (IMAPFolder) folder;
 		if (imapFolder.hasNewMessages()) {
 			return;
 		}
-		else if (!folder.getPermanentFlags().contains(Flags.Flag.RECENT)) {
-			if (searchForNewMessages().length > 0) {
-				return;
-			}
+		else if (!folder.getPermanentFlags().contains(Flags.Flag.RECENT) && searchForNewMessages().length > 0) {
+			return;
 		}
 		imapFolder.addMessageCountListener(this.messageCountListener);
 		try {
 			this.pingTask = this.scheduler.schedule(this.idleCanceler,
 					new Date(System.currentTimeMillis() + this.cancelIdleInterval));
-			imapFolder.idle();
+			if (imapFolder.isOpen()) {
+				imapFolder.idle();
+			}
 		}
 		finally {
 			imapFolder.removeMessageCountListener(this.messageCountListener);
@@ -189,22 +201,20 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 	 * {@link javax.mail.Flags.Flag#ANSWERED ANSWERED}, and not
 	 * {@link javax.mail.Flags.Flag#DELETED DELETED}. The search term is used
 	 * to {@link Folder#search(SearchTerm) search} for new messages.
-	 *
 	 * @return the new messages
 	 * @throws MessagingException in case of JavaMail errors
 	 */
 	@Override
 	protected Message[] searchForNewMessages() throws MessagingException {
-		Flags supportedFlags = this.getFolder().getPermanentFlags();
-		SearchTerm searchTerm = this.compileSearchTerms(supportedFlags);
-		Folder folder = this.getFolder();
-		if (folder.isOpen()) {
-			return nullSafeMessages(searchTerm != null ? folder.search(searchTerm) : folder.getMessages());
+		Folder folderToUse = getFolder();
+		Flags supportedFlags = folderToUse.getPermanentFlags();
+		SearchTerm searchTerm = compileSearchTerms(supportedFlags);
+		if (folderToUse.isOpen()) {
+			return nullSafeMessages(searchTerm != null ? folderToUse.search(searchTerm) : folderToUse.getMessages());
 		}
 		throw new MessagingException("Folder is closed");
 	}
 
-	// INT-3859
 	private Message[] nullSafeMessages(Message[] messageArray) {
 		boolean hasNulls = false;
 		for (Message message : messageArray) {
@@ -217,13 +227,9 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 			return messageArray;
 		}
 		else {
-			List<Message> messages = new ArrayList<Message>();
-			for (Message message : messageArray) {
-				if (message != null) {
-					messages.add(message);
-				}
-			}
-			return messages.toArray(new Message[messages.size()]);
+			return Arrays.stream(messageArray)
+					.filter(Objects::nonNull)
+					.toArray(Message[]::new);
 		}
 	}
 
@@ -254,9 +260,11 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 					folder.isOpen(); // resets idle state
 				}
 			}
-			catch (Exception ignore) {
+			catch (Exception ex) {
+				logger.error("Error during resetting idle state.", ex);
 			}
 		}
+
 	}
 
 	/**
@@ -276,6 +284,7 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 				messages[0].getFolder().isOpen();
 			}
 		}
+
 	}
 
 	private class DefaultSearchTermStrategy implements SearchTermStrategy {
@@ -323,28 +332,35 @@ public class ImapMailReceiver extends AbstractMailReceiver {
 			}
 
 			if (!recentFlagSupported) {
-				NotTerm notFlagged = null;
-				if (folder.getPermanentFlags().contains(Flags.Flag.USER)) {
+				searchTerm = applyTermsWhenNoRecentFlag(folder, searchTerm);
+			}
+			return searchTerm;
+		}
+
+		private SearchTerm applyTermsWhenNoRecentFlag(Folder folder, SearchTerm searchTerm) {
+			NotTerm notFlagged = null;
+			if (folder.getPermanentFlags().contains(Flag.USER)) {
+				if (logger.isDebugEnabled()) {
 					logger.debug("This email server does not support RECENT flag, but it does support " +
 							"USER flags which will be used to prevent duplicates during email fetch." +
 							" This receiver instance uses flag: " + getUserFlag());
-					Flags siFlags = new Flags();
-					siFlags.add(getUserFlag());
-					notFlagged = new NotTerm(new FlagTerm(siFlags, true));
 				}
-				else {
-					logger.debug("This email server does not support RECENT or USER flags. " +
-							"System flag 'Flag.FLAGGED' will be used to prevent duplicates during email fetch.");
-					notFlagged = new NotTerm(new FlagTerm(new Flags(Flags.Flag.FLAGGED), true));
-				}
-				if (searchTerm == null) {
-					searchTerm = notFlagged;
-				}
-				else {
-					searchTerm = new AndTerm(searchTerm, notFlagged);
-				}
+				Flags siFlags = new Flags();
+				siFlags.add(getUserFlag());
+				notFlagged = new NotTerm(new FlagTerm(siFlags, true));
 			}
-			return searchTerm;
+			else {
+				logger.debug("This email server does not support RECENT or USER flags. " +
+						"System flag 'Flag.FLAGGED' will be used to prevent duplicates during email fetch.");
+				notFlagged = new NotTerm(new FlagTerm(new Flags(Flag.FLAGGED), true));
+			}
+
+			if (searchTerm == null) {
+				return notFlagged;
+			}
+			else {
+				return new AndTerm(searchTerm, notFlagged);
+			}
 		}
 
 	}

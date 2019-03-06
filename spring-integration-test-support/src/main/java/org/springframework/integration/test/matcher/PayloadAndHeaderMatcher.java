@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import java.util.Map;
 
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
-import org.hamcrest.Factory;
 
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
@@ -47,6 +46,7 @@ import org.springframework.messaging.MessageHeaders;
  *
  * @author Dave Syer
  * @author Artem Bilan
+ * @author Gary Russell
  *
  */
 public class PayloadAndHeaderMatcher<T> extends BaseMatcher<Message<?>> {
@@ -57,7 +57,6 @@ public class PayloadAndHeaderMatcher<T> extends BaseMatcher<Message<?>> {
 
 	private final String[] ignoreKeys;
 
-	@Factory
 	public static <P> PayloadAndHeaderMatcher<P> sameExceptIgnorableHeaders(Message<P> expected, String... ignoreKeys) {
 		return new PayloadAndHeaderMatcher<>(expected, ignoreKeys);
 	}
@@ -69,23 +68,25 @@ public class PayloadAndHeaderMatcher<T> extends BaseMatcher<Message<?>> {
 	}
 
 	private Map<String, Object> extractHeadersToAssert(Message<?> operand) {
-		HashMap<String, Object> headers = new HashMap<>(operand.getHeaders());
-		headers.remove(MessageHeaders.ID);
-		headers.remove(MessageHeaders.TIMESTAMP);
+		HashMap<String, Object> headersToAssert = new HashMap<>(operand.getHeaders());
+		headersToAssert.remove(MessageHeaders.ID);
+		headersToAssert.remove(MessageHeaders.TIMESTAMP);
 		if (this.ignoreKeys != null) {
 			for (String key : this.ignoreKeys) {
-				headers.remove(key);
+				headersToAssert.remove(key);
 			}
 		}
-		return headers;
+		return headersToAssert;
 	}
 
+	@Override
 	public boolean matches(Object arg) {
 		Message<?> input = (Message<?>) arg;
 		Map<String, Object> inputHeaders = extractHeadersToAssert(input);
 		return input.getPayload().equals(this.payload) && inputHeaders.equals(this.headers);
 	}
 
+	@Override
 	public void describeTo(Description description) {
 		description.appendText("a Message with Headers that match except ID and timestamp for payload: ")
 				.appendValue(this.payload)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -145,17 +145,13 @@ public class SourcePollingChannelAdapter extends AbstractPollingEndpoint
 	protected void applyReceiveOnlyAdviceChain(Collection<Advice> chain) {
 		if (!CollectionUtils.isEmpty(chain)) {
 			if (AopUtils.isAopProxy(this.source)) {
-				Advised source = (Advised) this.source;
-				this.appliedAdvices.forEach(source::removeAdvice);
-				for (Advice advice : chain) {
-					source.addAdvisor(adviceToReceiveAdvisor(advice));
-				}
+				Advised advised = (Advised) this.source;
+				this.appliedAdvices.forEach(advised::removeAdvice);
+				chain.stream().forEach(advice -> advised.addAdvisor(adviceToReceiveAdvisor(advice)));
 			}
 			else {
 				ProxyFactory proxyFactory = new ProxyFactory(this.source);
-				for (Advice advice : chain) {
-					proxyFactory.addAdvisor(adviceToReceiveAdvisor(advice));
-				}
+				chain.stream().forEach(advice -> proxyFactory.addAdvisor(adviceToReceiveAdvisor(advice)));
 				this.source = (MessageSource<?>) proxyFactory.getProxy(getBeanClassLoader());
 			}
 			this.appliedAdvices.clear();
@@ -228,7 +224,8 @@ public class SourcePollingChannelAdapter extends AbstractPollingEndpoint
 	}
 
 	@Override
-	protected void handleMessage(Message<?> message) {
+	protected void handleMessage(Message<?> messageArg) {
+		Message<?> message = messageArg;
 		if (this.shouldTrack) {
 			message = MessageHistory.write(message, this, getMessageBuilderFactory());
 		}
@@ -268,9 +265,6 @@ public class SourcePollingChannelAdapter extends AbstractPollingEndpoint
 			return target;
 		}
 		Advised advised = (Advised) target;
-		if (advised.getTargetSource() == null) {
-			return null;
-		}
 		try {
 			return extractProxyTarget(advised.getTargetSource().getTarget());
 		}

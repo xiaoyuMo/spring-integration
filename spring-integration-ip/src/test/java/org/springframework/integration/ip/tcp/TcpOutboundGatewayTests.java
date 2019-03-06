@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,8 @@
 
 package org.springframework.integration.ip.tcp;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -130,7 +124,7 @@ public class TcpOutboundGatewayTests {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 		AbstractClientConnectionFactory ccf = new TcpNetClientConnectionFactory("localhost",
 				serverSocket.get().getLocalPort());
 		ccf.setSerializer(new DefaultSerializer());
@@ -144,12 +138,12 @@ public class TcpOutboundGatewayTests {
 		gateway.setRequiresReply(true);
 		gateway.setOutputChannel(replyChannel);
 		// check the default remote timeout
-		assertEquals("10000", TestUtils.getPropertyValue(gateway, "remoteTimeoutExpression.literalValue"));
+		assertThat(TestUtils.getPropertyValue(gateway, "remoteTimeoutExpression.value")).isEqualTo(10000L);
 		gateway.setSendTimeout(123);
 		gateway.setRemoteTimeout(60000);
 		gateway.setSendTimeout(61000);
 		// ensure this did NOT change the remote timeout
-		assertEquals("60000", TestUtils.getPropertyValue(gateway, "remoteTimeoutExpression.literalValue"));
+		assertThat(TestUtils.getPropertyValue(gateway, "remoteTimeoutExpression.literalValue")).isEqualTo("60000");
 		gateway.setRequestTimeout(60000);
 		for (int i = 100; i < 200; i++) {
 			gateway.handleMessage(MessageBuilder.withPayload("Test" + i).build());
@@ -157,11 +151,11 @@ public class TcpOutboundGatewayTests {
 		Set<String> replies = new HashSet<String>();
 		for (int i = 100; i < 200; i++) {
 			Message<?> m = replyChannel.receive(10000);
-			assertNotNull(m);
+			assertThat(m).isNotNull();
 			replies.add((String) m.getPayload());
 		}
 		for (int i = 0; i < 100; i++) {
-			assertTrue(replies.remove("Reply" + i));
+			assertThat(replies.remove("Reply" + i)).isTrue();
 		}
 		done.set(true);
 		ccf.stop();
@@ -193,7 +187,7 @@ public class TcpOutboundGatewayTests {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 		AbstractClientConnectionFactory ccf = new TcpNetClientConnectionFactory("localhost",
 				serverSocket.get().getLocalPort());
 		ccf.setSerializer(new DefaultSerializer());
@@ -212,11 +206,11 @@ public class TcpOutboundGatewayTests {
 		Set<String> replies = new HashSet<String>();
 		for (int i = 100; i < 110; i++) {
 			Message<?> m = replyChannel.receive(10000);
-			assertNotNull(m);
+			assertThat(m).isNotNull();
 			replies.add((String) m.getPayload());
 		}
 		for (int i = 0; i < 10; i++) {
-			assertTrue(replies.remove("Reply" + i));
+			assertThat(replies.remove("Reply" + i)).isTrue();
 		}
 		done.set(true);
 		gateway.stop();
@@ -250,7 +244,7 @@ public class TcpOutboundGatewayTests {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 		AbstractClientConnectionFactory ccf = new TcpNetClientConnectionFactory("localhost",
 				serverSocket.get().getLocalPort());
 		ccf.setSerializer(new DefaultSerializer());
@@ -284,21 +278,21 @@ public class TcpOutboundGatewayTests {
 					fail("Unexpected " + e.getMessage());
 				}
 				else {
-					assertNotNull(e.getCause());
-					assertTrue(e.getCause() instanceof MessageTimeoutException);
+					assertThat(e.getCause()).isNotNull();
+					assertThat(e.getCause() instanceof MessageTimeoutException).isTrue();
 				}
 				timeouts++;
 				continue;
 			}
 			Message<?> m = replyChannel.receive(10000);
-			assertNotNull(m);
+			assertThat(m).isNotNull();
 			replies.add((String) m.getPayload());
 		}
 		if (timeouts < 1) {
 			fail("Expected ExecutionException");
 		}
 		for (int i = 0; i < 1; i++) {
-			assertTrue(replies.remove("Reply" + i));
+			assertThat(replies.remove("Reply" + i)).isTrue();
 		}
 		done.set(true);
 		gateway.stop();
@@ -312,7 +306,7 @@ public class TcpOutboundGatewayTests {
 		final int port = serverSocket.getLocalPort();
 		AbstractClientConnectionFactory ccf = buildCF(port);
 		ccf.start();
-		testGoodNetGWTimeoutGuts(port, ccf, serverSocket);
+		testGoodNetGWTimeoutGuts(ccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -323,7 +317,7 @@ public class TcpOutboundGatewayTests {
 		AbstractClientConnectionFactory ccf = buildCF(port);
 		CachingClientConnectionFactory cccf = new CachingClientConnectionFactory(ccf, 1);
 		cccf.start();
-		testGoodNetGWTimeoutGuts(port, cccf, serverSocket);
+		testGoodNetGWTimeoutGuts(cccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -342,8 +336,9 @@ public class TcpOutboundGatewayTests {
 	 * own response, not that for the first.
 	 * @throws Exception
 	 */
-	private void testGoodNetGWTimeoutGuts(final int port, AbstractClientConnectionFactory ccf,
+	private void testGoodNetGWTimeoutGuts(AbstractClientConnectionFactory ccf,
 			final ServerSocket server) throws InterruptedException {
+
 		final CountDownLatch latch = new CountDownLatch(1);
 		final AtomicBoolean done = new AtomicBoolean();
 		/*
@@ -372,11 +367,13 @@ public class TcpOutboundGatewayTests {
 							oos.writeObject(request.replace("Test", "Reply"));
 							logger.debug("Replied to " + request);
 							lastReceived.set(request);
-							serverLatch.countDown();
 						}
 						catch (IOException e1) {
-							logger.debug("error on write " + e1.getClass().getSimpleName());
+							logger.debug("error on write " + e1.getMessage());
 							socket.close();
+						}
+						finally {
+							serverLatch.countDown();
 						}
 					}
 				}
@@ -387,7 +384,7 @@ public class TcpOutboundGatewayTests {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 		final TcpOutboundGateway gateway = new TcpOutboundGateway();
 		gateway.setConnectionFactory(ccf);
 		gateway.setRequestTimeout(Integer.MAX_VALUE);
@@ -398,7 +395,7 @@ public class TcpOutboundGatewayTests {
 		Expression remoteTimeoutExpression = Mockito.mock(Expression.class);
 
 		when(remoteTimeoutExpression.getValue(Mockito.any(EvaluationContext.class), Mockito.any(Message.class),
-				Mockito.eq(Long.class))).thenReturn(50L, 10000L);
+				Mockito.eq(Long.class))).thenReturn(50L, 60000L);
 
 		gateway.setRemoteTimeoutExpression(remoteTimeoutExpression);
 
@@ -414,7 +411,7 @@ public class TcpOutboundGatewayTests {
 
 		}
 		// wait until the server side has processed both requests
-		assertTrue(serverLatch.await(30, TimeUnit.SECONDS));
+		assertThat(serverLatch.await(30, TimeUnit.SECONDS)).isTrue();
 		List<String> replies = new ArrayList<String>();
 		int timeouts = 0;
 		for (int i = 0; i < 2; i++) {
@@ -429,18 +426,18 @@ public class TcpOutboundGatewayTests {
 					fail("Unexpected " + e.getMessage());
 				}
 				else {
-					assertNotNull(e.getCause());
-					assertThat(e.getCause(), instanceOf(MessageTimeoutException.class));
+					assertThat(e.getCause()).isNotNull();
+					assertThat(e.getCause()).isInstanceOf(MessageTimeoutException.class);
 				}
 				timeouts++;
 				continue;
 			}
 		}
-		assertEquals("Expected exactly one ExecutionException", 1, timeouts);
-		assertEquals(1, replies.size());
-		assertEquals(lastReceived.get().replace("Test", "Reply"), replies.get(0));
+		assertThat(timeouts).as("Expected exactly one ExecutionException").isEqualTo(1);
+		assertThat(replies.size()).isEqualTo(1);
+		assertThat(replies.get(0)).isEqualTo(lastReceived.get().replace("Test", "Reply"));
 		done.set(true);
-		assertEquals(0, TestUtils.getPropertyValue(gateway, "pendingReplies", Map.class).size());
+		assertThat(TestUtils.getPropertyValue(gateway, "pendingReplies", Map.class).size()).isEqualTo(0);
 		gateway.stop();
 		ccf.stop();
 	}
@@ -482,7 +479,7 @@ public class TcpOutboundGatewayTests {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 
 		// Failover
 		AbstractClientConnectionFactory factory1 = mock(AbstractClientConnectionFactory.class);
@@ -517,8 +514,8 @@ public class TcpOutboundGatewayTests {
 		GenericMessage<String> message = new GenericMessage<String>("foo");
 		gateway.handleMessage(message);
 		Message<?> reply = outputChannel.receive(0);
-		assertNotNull(reply);
-		assertEquals("bar", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("bar");
 		done.set(true);
 		gateway.stop();
 		verify(mockConn1).send(Mockito.any(Message.class));
@@ -563,7 +560,7 @@ public class TcpOutboundGatewayTests {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 
 		// Cache
 		AbstractClientConnectionFactory factory1 = mock(AbstractClientConnectionFactory.class);
@@ -601,8 +598,8 @@ public class TcpOutboundGatewayTests {
 		GenericMessage<String> message = new GenericMessage<String>("foo");
 		gateway.handleMessage(message);
 		Message<?> reply = outputChannel.receive(0);
-		assertNotNull(reply);
-		assertEquals("bar", reply.getPayload());
+		assertThat(reply).isNotNull();
+		assertThat(reply.getPayload()).isEqualTo("bar");
 		done.set(true);
 		gateway.stop();
 		verify(mockConn1).send(Mockito.any(Message.class));
@@ -626,7 +623,7 @@ public class TcpOutboundGatewayTests {
 		ccf.setSoTimeout(10000);
 		ccf.setSingleUse(false);
 		ccf.start();
-		testGWPropagatesSocketCloseGuts(port, ccf, serverSocket);
+		testGWPropagatesSocketCloseGuts(ccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -640,7 +637,7 @@ public class TcpOutboundGatewayTests {
 		ccf.setSoTimeout(10000);
 		ccf.setSingleUse(false);
 		ccf.start();
-		testGWPropagatesSocketCloseGuts(port, ccf, serverSocket);
+		testGWPropagatesSocketCloseGuts(ccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -655,7 +652,7 @@ public class TcpOutboundGatewayTests {
 		ccf.setSingleUse(false);
 		CachingClientConnectionFactory cccf = new CachingClientConnectionFactory(ccf, 1);
 		cccf.start();
-		testGWPropagatesSocketCloseGuts(port, cccf, serverSocket);
+		testGWPropagatesSocketCloseGuts(cccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -671,12 +668,13 @@ public class TcpOutboundGatewayTests {
 		FailoverClientConnectionFactory focf = new FailoverClientConnectionFactory(
 				Collections.singletonList(ccf));
 		focf.start();
-		testGWPropagatesSocketCloseGuts(port, focf, serverSocket);
+		testGWPropagatesSocketCloseGuts(focf, serverSocket);
 		serverSocket.close();
 	}
 
-	private void testGWPropagatesSocketCloseGuts(final int port, AbstractClientConnectionFactory ccf,
+	private void testGWPropagatesSocketCloseGuts(AbstractClientConnectionFactory ccf,
 			final ServerSocket server) throws Exception {
+
 		final CountDownLatch latch = new CountDownLatch(1);
 		final AtomicBoolean done = new AtomicBoolean();
 		final AtomicReference<String> lastReceived = new AtomicReference<>();
@@ -699,6 +697,7 @@ public class TcpOutboundGatewayTests {
 							serverLatch.countDown();
 						}
 						catch (IOException e1) {
+							logger.debug("error on write " + e1.getMessage());
 							socket1.close();
 						}
 					}
@@ -713,11 +712,11 @@ public class TcpOutboundGatewayTests {
 				try {
 					socket2.close();
 				}
-				catch (IOException e3) {
+				catch (@SuppressWarnings("unused") IOException e3) {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 		final TcpOutboundGateway gateway = new TcpOutboundGateway();
 		gateway.setConnectionFactory(ccf);
 		gateway.setRequestTimeout(Integer.MAX_VALUE);
@@ -733,11 +732,11 @@ public class TcpOutboundGatewayTests {
 			fail("expected failure");
 		}
 		catch (Exception e) {
-			assertThat(e.getCause().getCause(), instanceOf(EOFException.class));
+			assertThat(e.getCause().getCause()).isInstanceOf(EOFException.class);
 		}
-		assertEquals(0, TestUtils.getPropertyValue(gateway, "pendingReplies", Map.class).size());
+		assertThat(TestUtils.getPropertyValue(gateway, "pendingReplies", Map.class).size()).isEqualTo(0);
 		Message<?> reply = replyChannel.receive(0);
-		assertNull(reply);
+		assertThat(reply).isNull();
 		done.set(true);
 		ccf.getConnection();
 		gateway.stop();
@@ -754,7 +753,7 @@ public class TcpOutboundGatewayTests {
 		ccf.setSoTimeout(100);
 		ccf.setSingleUse(false);
 		ccf.start();
-		testGWPropagatesSocketTimeoutGuts(port, ccf, serverSocket);
+		testGWPropagatesSocketTimeoutGuts(ccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -768,7 +767,7 @@ public class TcpOutboundGatewayTests {
 		ccf.setSoTimeout(100);
 		ccf.setSingleUse(false);
 		ccf.start();
-		testGWPropagatesSocketTimeoutGuts(port, ccf, serverSocket);
+		testGWPropagatesSocketTimeoutGuts(ccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -782,7 +781,7 @@ public class TcpOutboundGatewayTests {
 		ccf.setSoTimeout(100);
 		ccf.setSingleUse(true);
 		ccf.start();
-		testGWPropagatesSocketTimeoutGuts(port, ccf, serverSocket);
+		testGWPropagatesSocketTimeoutGuts(ccf, serverSocket);
 		serverSocket.close();
 	}
 
@@ -796,12 +795,13 @@ public class TcpOutboundGatewayTests {
 		ccf.setSoTimeout(100);
 		ccf.setSingleUse(true);
 		ccf.start();
-		testGWPropagatesSocketTimeoutGuts(port, ccf, serverSocket);
+		testGWPropagatesSocketTimeoutGuts(ccf, serverSocket);
 		serverSocket.close();
 	}
 
-	private void testGWPropagatesSocketTimeoutGuts(final int port, AbstractClientConnectionFactory ccf,
+	private void testGWPropagatesSocketTimeoutGuts(AbstractClientConnectionFactory ccf,
 			final ServerSocket server) throws Exception {
+
 		final CountDownLatch latch = new CountDownLatch(1);
 		final AtomicBoolean done = new AtomicBoolean();
 
@@ -822,11 +822,11 @@ public class TcpOutboundGatewayTests {
 				try {
 					socket.close();
 				}
-				catch (IOException e2) {
+				catch (@SuppressWarnings("unused") IOException e2) {
 				}
 			}
 		});
-		assertTrue(latch.await(10000, TimeUnit.MILLISECONDS));
+		assertThat(latch.await(10000, TimeUnit.MILLISECONDS)).isTrue();
 		final TcpOutboundGateway gateway = new TcpOutboundGateway();
 		gateway.setConnectionFactory(ccf);
 		gateway.setRequestTimeout(Integer.MAX_VALUE);
@@ -842,11 +842,11 @@ public class TcpOutboundGatewayTests {
 			fail("expected failure");
 		}
 		catch (Exception e) {
-			assertThat(e.getCause().getCause(), instanceOf(SocketTimeoutException.class));
+			assertThat(e.getCause().getCause()).isInstanceOf(SocketTimeoutException.class);
 		}
-		assertEquals(0, TestUtils.getPropertyValue(gateway, "pendingReplies", Map.class).size());
+		assertThat(TestUtils.getPropertyValue(gateway, "pendingReplies", Map.class).size()).isEqualTo(0);
 		Message<?> reply = replyChannel.receive(0);
-		assertNull(reply);
+		assertThat(reply).isNull();
 		done.set(true);
 		ccf.getConnection();
 		gateway.stop();
@@ -879,7 +879,7 @@ public class TcpOutboundGatewayTests {
 				try {
 					socket.close();
 				}
-				catch (IOException e2) {
+				catch (@SuppressWarnings("unused") IOException e2) {
 				}
 			}
 		});
@@ -896,14 +896,14 @@ public class TcpOutboundGatewayTests {
 		while (n++ < 100 && pending.size() == 0) {
 			Thread.sleep(100);
 		}
-		assertTrue(pending.size() > 0);
+		assertThat(pending.size() > 0).isTrue();
 		String connectionId = pending.keySet().iterator().next();
 		this.executor.execute(() -> gateway.onMessage(new ErrorMessage(new RuntimeException(),
 				Collections.singletonMap(IpHeaders.CONNECTION_ID, connectionId))));
 		GenericMessage<String> message = new GenericMessage<>("FOO",
 				Collections.singletonMap(IpHeaders.CONNECTION_ID, connectionId));
 		gateway.onMessage(message);
-		assertThat(replies.receive(10000), equalTo(message));
+		assertThat(replies.receive(10000)).isEqualTo(message);
 		gateway.stop();
 		done.set(true);
 		server.close();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ public class FailoverClientConnectionFactory extends AbstractClientConnectionFac
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		for (AbstractClientConnectionFactory factory : this.factories) {
 			Assert.state(!(this.isSingleUse() ^ factory.isSingleUse()),
@@ -363,7 +363,16 @@ public class FailoverClientConnectionFactory extends AbstractClientConnectionFac
 					messageBuilder.setHeader(IpHeaders.ACTUAL_CONNECTION_ID,
 							message.getHeaders().get(IpHeaders.CONNECTION_ID));
 				}
-				return this.getListener().onMessage(messageBuilder.build());
+				TcpListener listener = getListener();
+				if (listener == null) {
+					if (this.logger.isDebugEnabled()) {
+						logger.debug("No listener for " + message);
+					}
+					return false;
+				}
+				else {
+					return listener.onMessage(messageBuilder.build());
+				}
 			}
 			else {
 				if (logger.isDebugEnabled()) {

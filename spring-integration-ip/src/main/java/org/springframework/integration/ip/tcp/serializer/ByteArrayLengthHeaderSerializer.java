@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 
 /**
@@ -45,25 +42,28 @@ import org.apache.commons.logging.LogFactory;
  */
 public class ByteArrayLengthHeaderSerializer extends AbstractByteArraySerializer {
 
-
 	/**
 	 * Default length-header field, allows for data up to 2**31-1 bytes.
 	 */
-	public static final int HEADER_SIZE_INT = 4; // default
-
-	/**
-	 * A single unsigned byte, for data up to 255 bytes.
-	 */
-	public static final int HEADER_SIZE_UNSIGNED_BYTE = 1;
+	public static final int HEADER_SIZE_INT = Integer.BYTES; // default
 
 	/**
 	 * An unsigned short, for data up to 2**16 bytes.
 	 */
-	public static final int HEADER_SIZE_UNSIGNED_SHORT = 2;
+	public static final int HEADER_SIZE_UNSIGNED_SHORT = Short.BYTES;
+
+	/**
+	 * A single unsigned byte, for data up to 255 bytes.
+	 */
+	public static final int HEADER_SIZE_UNSIGNED_BYTE = Byte.BYTES;
+
+	private static final int MAX_UNSIGNED_SHORT = 0xffff;
+
+	private static final int MAX_UNSIGNED_BYTE = 0xff;
 
 	private final int headerSize;
 
-	private final Log logger = LogFactory.getLog(this.getClass());
+	private int headerAdjust;
 
 	/**
 	 * Constructs the serializer using {@link #HEADER_SIZE_INT}
@@ -88,6 +88,42 @@ public class ByteArrayLengthHeaderSerializer extends AbstractByteArraySerializer
 	}
 
 	/**
+	 * Return true if the lenght header value includes its own length.
+	 * @return true if the length includes the header length.
+	 * @since 5.2
+	 */
+	protected boolean isInclusive() {
+		return this.headerAdjust > 0;
+	}
+
+	/**
+	 * Set to true to set the length header to include the length of the header in
+	 * addition to the payload. Valid header sizes are {@link #HEADER_SIZE_INT} (default),
+	 * {@link #HEADER_SIZE_UNSIGNED_BYTE} and {@link #HEADER_SIZE_UNSIGNED_SHORT} and 4, 1
+	 * and 2 will be added to the payload length respectively.
+	 * @param inclusive true to include the header length.
+	 * @since 5.2
+	 * @see #inclusive()
+	 */
+	public void setInclusive(boolean inclusive) {
+		this.headerAdjust = inclusive ? this.headerSize : 0;
+	}
+
+	/**
+	 * Include the length of the header in addition to the payload. Valid header sizes are
+	 * {@link #HEADER_SIZE_INT} (default), {@link #HEADER_SIZE_UNSIGNED_BYTE} and
+	 * {@link #HEADER_SIZE_UNSIGNED_SHORT} and 4, 1 and 2 will be added to the payload
+	 * length respectively. Fluent API form of {@link #setInclusive(boolean)}.
+	 * @return the serializer.
+	 * @since 5.2
+	 * @see #setInclusive(boolean)
+	 */
+	public ByteArrayLengthHeaderSerializer inclusive() {
+		setInclusive(true);
+		return this;
+	}
+
+	/**
 	 * Reads the header from the stream and then reads the provided length
 	 * from the stream and returns the data in a byte[]. Throws an
 	 * IOException if the length field exceeds the maxMessageSize.
@@ -99,15 +135,15 @@ public class ByteArrayLengthHeaderSerializer extends AbstractByteArraySerializer
 	 */
 	@Override
 	public byte[] deserialize(InputStream inputStream) throws IOException {
-		int messageLength = this.readHeader(inputStream);
+		int messageLength = this.readHeader(inputStream) - this.headerAdjust;
 		if (this.logger.isDebugEnabled()) {
 			this.logger.debug("Message length is " + messageLength);
 		}
 		byte[] messagePart = null;
 		try {
-			if (messageLength > this.maxMessageSize) {
+			if (messageLength > getMaxMessageSize()) {
 				throw new IOException("Message length " + messageLength +
-						" exceeds max message length: " + this.maxMessageSize);
+						" exceeds max message length: " + getMaxMessageSize());
 			}
 			messagePart = new byte[messageLength];
 			read(inputStream, messagePart, false);
@@ -132,7 +168,7 @@ public class ByteArrayLengthHeaderSerializer extends AbstractByteArraySerializer
 	 */
 	@Override
 	public void serialize(byte[] bytes, OutputStream outputStream) throws IOException {
-		this.writeHeader(outputStream, bytes.length);
+		this.writeHeader(outputStream, bytes.length + this.headerAdjust);
 		outputStream.write(bytes);
 	}
 
@@ -183,7 +219,7 @@ public class ByteArrayLengthHeaderSerializer extends AbstractByteArraySerializer
 				lengthPart.putInt(length);
 				break;
 			case HEADER_SIZE_UNSIGNED_BYTE:
-				if (length > 0xff) {
+				if (length > MAX_UNSIGNED_BYTE) {
 					throw new IllegalArgumentException("Length header:"
 							+ this.headerSize
 							+ " too short to accommodate message length:" + length);
@@ -191,7 +227,7 @@ public class ByteArrayLengthHeaderSerializer extends AbstractByteArraySerializer
 				lengthPart.put((byte) length);
 				break;
 			case HEADER_SIZE_UNSIGNED_SHORT:
-				if (length > 0xffff) {
+				if (length > MAX_UNSIGNED_SHORT) {
 					throw new IllegalArgumentException("Length header:"
 							+ this.headerSize
 							+ " too short to accommodate message length:" + length);
@@ -231,10 +267,10 @@ public class ByteArrayLengthHeaderSerializer extends AbstractByteArraySerializer
 					}
 					break;
 				case HEADER_SIZE_UNSIGNED_BYTE:
-					messageLength = ByteBuffer.wrap(lengthPart).get() & 0xff;
+					messageLength = ByteBuffer.wrap(lengthPart).get() & MAX_UNSIGNED_BYTE;
 					break;
 				case HEADER_SIZE_UNSIGNED_SHORT:
-					messageLength = ByteBuffer.wrap(lengthPart).getShort() & 0xffff;
+					messageLength = ByteBuffer.wrap(lengthPart).getShort() & MAX_UNSIGNED_SHORT;
 					break;
 				default:
 					throw new IllegalArgumentException("Bad header size:" + this.headerSize);

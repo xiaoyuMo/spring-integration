@@ -33,6 +33,7 @@ import org.reactivestreams.Publisher;
 import org.springframework.core.ReactiveAdapter;
 import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.ResolvableType;
+import org.springframework.expression.EvaluationContext;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.http.HttpHeaders;
@@ -46,7 +47,6 @@ import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.http.codec.ServerCodecConfigurer;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
-import org.springframework.integration.gateway.MessagingGatewaySupport;
 import org.springframework.integration.http.inbound.BaseHttpInboundEndpoint;
 import org.springframework.integration.support.AbstractIntegrationMessageBuilder;
 import org.springframework.messaging.Message;
@@ -66,10 +66,11 @@ import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 
 /**
- * A {@link MessagingGatewaySupport} implementation for Spring WebFlux
- * HTTP requests execution.
+ * A {@link org.springframework.integration.gateway.MessagingGatewaySupport}
+ * implementation for Spring WebFlux HTTP requests execution.
  *
  * @author Artem Bilan
+ * @author Gary Russell
  *
  * @since 5.0
  *
@@ -79,6 +80,8 @@ import reactor.util.function.Tuple2;
 public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements WebHandler {
 
 	private static final MediaType MEDIA_TYPE_APPLICATION_ALL = new MediaType("application");
+
+	private static final String UNCHECKED = "unchecked";
 
 	private static final List<HttpMethod> SAFE_METHODS = Arrays.asList(HttpMethod.GET, HttpMethod.HEAD);
 
@@ -131,11 +134,6 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 	}
 
 	@Override
-	protected void onInit() throws Exception {
-		super.onInit();
-	}
-
-	@Override
 	public Mono<Void> handle(ServerWebExchange exchange) {
 		return Mono.defer(() -> {
 			if (isRunning()) {
@@ -147,10 +145,10 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 		});
 	}
 
-	@SuppressWarnings("unchecked")
 	private Mono<Void> doHandle(ServerWebExchange exchange) {
 		return extractRequestBody(exchange)
 				.doOnSubscribe(s -> this.activeCount.incrementAndGet())
+				.cast(Object.class)
 				.switchIfEmpty(Mono.just(exchange.getRequest().getQueryParams()))
 				.map(body ->
 						new RequestEntity<>(body, exchange.getRequest().getHeaders(),
@@ -170,107 +168,88 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 
 	}
 
-	@SuppressWarnings("unchecked")
-	private <T> Mono<T> extractRequestBody(ServerWebExchange exchange) {
-		ServerHttpRequest request = exchange.getRequest();
-		ServerHttpResponse response = exchange.getResponse();
-
-		if (isReadable(request)) {
-			MediaType contentType;
-			if (request.getHeaders().getContentType() == null) {
-				contentType = MediaType.APPLICATION_OCTET_STREAM;
-			}
-			else {
-				contentType = request.getHeaders().getContentType();
-			}
-
-			if (MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(contentType)) {
-				return (Mono<T>) exchange.getFormData();
-			}
-			else if (MediaType.MULTIPART_FORM_DATA.isCompatibleWith(contentType)) {
-				return (Mono<T>) exchange.getMultipartData();
-			}
-			else {
-				ResolvableType bodyType = getRequestPayloadType();
-				if (bodyType == null) {
-					bodyType =
-							"text".equals(contentType.getType())
-									? ResolvableType.forClass(String.class)
-									: ResolvableType.forClass(byte[].class);
-				}
-
-				Class<?> resolvedType = bodyType.resolve();
-
-				ReactiveAdapter adapter = (resolvedType != null ? this.adapterRegistry.getAdapter(resolvedType) : null);
-				ResolvableType elementType = (adapter != null ? bodyType.getGeneric() : bodyType);
-
-				HttpMessageReader<?> httpMessageReader = this.codecConfigurer
-						.getReaders()
-						.stream()
-						.filter(reader -> reader.canRead(elementType, contentType))
-						.findFirst()
-						.orElseThrow(() -> new UnsupportedMediaTypeStatusException(
-								"Could not convert request: no suitable HttpMessageReader found for expected type ["
-										+ elementType + "] and content type [" + contentType + "]"));
-
-
-				Map<String, Object> readHints = Collections.emptyMap();
-				if (adapter != null && adapter.isMultiValue()) {
-					Flux<?> flux = httpMessageReader.read(bodyType, elementType, request, response, readHints);
-
-					return (Mono<T>) Mono.just(adapter.fromPublisher(flux));
-				}
-				else {
-					Mono<?> mono = httpMessageReader.readMono(bodyType, elementType, request, response, readHints);
-
-					if (adapter != null) {
-						return (Mono<T>) Mono.just(adapter.fromPublisher(mono));
-					}
-					else {
-						return (Mono<T>) mono;
-					}
-				}
-			}
+	private Mono<?> extractRequestBody(ServerWebExchange exchange) {
+		if (isReadable(exchange.getRequest())) {
+			return extractReadableRequestBody(exchange);
 		}
 		else {
-			return (Mono<T>) Mono.just(exchange.getRequest().getQueryParams());
+			return Mono.just(exchange.getRequest().getQueryParams());
 		}
 	}
 
-	@SuppressWarnings("unchecked")
+	private Mono<?> extractReadableRequestBody(ServerWebExchange exchange) {
+		MediaType contentType =
+				exchange.getRequest()
+						.getHeaders()
+						.getContentType();
+		if (contentType == null) {
+			contentType = MediaType.APPLICATION_OCTET_STREAM;
+		}
+
+		if (MediaType.APPLICATION_FORM_URLENCODED.isCompatibleWith(contentType)) {
+			return exchange.getFormData();
+		}
+		else if (MediaType.MULTIPART_FORM_DATA.isCompatibleWith(contentType)) {
+			return exchange.getMultipartData();
+		}
+		else {
+			return readRequestBody(exchange, contentType);
+		}
+	}
+
+	private Mono<?> readRequestBody(ServerWebExchange exchange, MediaType contentType) {
+		ServerHttpRequest request = exchange.getRequest();
+		ServerHttpResponse response = exchange.getResponse();
+		ResolvableType bodyType = getRequestPayloadType();
+		if (bodyType == null) {
+			bodyType =
+					"text".equals(contentType.getType())
+							? ResolvableType.forClass(String.class)
+							: ResolvableType.forClass(byte[].class);
+		}
+
+		Class<?> resolvedType = bodyType.resolve();
+
+		ReactiveAdapter adapter =
+				resolvedType != null
+						? this.adapterRegistry.getAdapter(resolvedType)
+						: null;
+		ResolvableType elementType = (adapter != null ? bodyType.getGeneric() : bodyType);
+
+		HttpMessageReader<?> httpMessageReader = this.codecConfigurer
+				.getReaders()
+				.stream()
+				.filter(reader -> reader.canRead(elementType, contentType))
+				.findFirst()
+				.orElseThrow(() -> new UnsupportedMediaTypeStatusException(
+						"Could not convert request: no suitable HttpMessageReader found for expected type ["
+								+ elementType + "] and content type [" + contentType + "]"));
+
+
+		Map<String, Object> readHints = Collections.emptyMap();
+		if (adapter != null && adapter.isMultiValue()) {
+			Flux<?> flux = httpMessageReader.read(bodyType, elementType, request, response, readHints);
+			return Mono.just(adapter.fromPublisher(flux));
+		}
+		else {
+			Mono<?> mono = httpMessageReader.readMono(bodyType, elementType, request, response, readHints);
+			if (adapter != null) {
+				return Mono.just(adapter.fromPublisher(mono));
+			}
+			else {
+				return mono;
+			}
+		}
+	}
+
+	@SuppressWarnings(UNCHECKED)
 	private Mono<Tuple2<Message<Object>, RequestEntity<?>>> buildMessage(RequestEntity<?> httpEntity,
 			ServerWebExchange exchange) {
 
 		ServerHttpRequest request = exchange.getRequest();
-		HttpHeaders requestHeaders = request.getHeaders();
-		Map<String, Object> exchangeAttributes = exchange.getAttributes();
-
-		StandardEvaluationContext evaluationContext = createEvaluationContext();
-
-		evaluationContext.setVariable("requestAttributes", exchangeAttributes);
 		MultiValueMap<String, String> requestParams = request.getQueryParams();
-		evaluationContext.setVariable("requestParams", requestParams);
-		evaluationContext.setVariable("requestHeaders", requestHeaders);
-		if (!CollectionUtils.isEmpty(request.getCookies())) {
-			evaluationContext.setVariable("cookies", request.getCookies());
-		}
 
-		Map<String, String> pathVariables =
-				(Map<String, String>) exchangeAttributes.get(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
-
-		if (!CollectionUtils.isEmpty(pathVariables)) {
-			evaluationContext.setVariable("pathVariables", pathVariables);
-		}
-
-		Map<String, MultiValueMap<String, String>> matrixVariables =
-				(Map<String, MultiValueMap<String, String>>) exchangeAttributes
-						.get(HandlerMapping.MATRIX_VARIABLES_ATTRIBUTE);
-
-		if (!CollectionUtils.isEmpty(matrixVariables)) {
-			evaluationContext.setVariable("matrixVariables", matrixVariables);
-		}
-
-		evaluationContext.setRootObject(httpEntity);
+		EvaluationContext evaluationContext = buildEvaluationContext(httpEntity, exchange);
 		Object payload;
 		if (getPayloadExpression() != null) {
 			payload = getPayloadExpression().getValue(evaluationContext);
@@ -310,10 +289,13 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 							.copyHeaders(headers);
 		}
 
-		messageBuilder
-				.setHeader(org.springframework.integration.http.HttpHeaders.REQUEST_URL, request.getURI().toString())
-				.setHeader(org.springframework.integration.http.HttpHeaders.REQUEST_METHOD,
-						request.getMethod().toString());
+		messageBuilder.setHeader(org.springframework.integration.http.HttpHeaders.REQUEST_URL,
+				request.getURI().toString());
+		HttpMethod httpMethod = request.getMethod();
+		if (httpMethod != null) {
+			messageBuilder.setHeader(org.springframework.integration.http.HttpHeaders.REQUEST_METHOD,
+					httpMethod.toString());
+		}
 
 		return exchange.getPrincipal()
 				.map(principal ->
@@ -322,6 +304,41 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 				.defaultIfEmpty(messageBuilder)
 				.map(AbstractIntegrationMessageBuilder::build)
 				.zipWith(Mono.just(httpEntity));
+	}
+
+	@SuppressWarnings(UNCHECKED)
+	private EvaluationContext buildEvaluationContext(RequestEntity<?> httpEntity, ServerWebExchange exchange) {
+		ServerHttpRequest request = exchange.getRequest();
+		HttpHeaders requestHeaders = request.getHeaders();
+		MultiValueMap<String, String> requestParams = request.getQueryParams();
+		Map<String, Object> exchangeAttributes = exchange.getAttributes();
+
+		StandardEvaluationContext evaluationContext = createEvaluationContext();
+
+		evaluationContext.setVariable("requestAttributes", exchangeAttributes);
+		evaluationContext.setVariable("requestParams", requestParams);
+		evaluationContext.setVariable("requestHeaders", requestHeaders);
+		if (!CollectionUtils.isEmpty(request.getCookies())) {
+			evaluationContext.setVariable("cookies", request.getCookies());
+		}
+
+		Map<String, String> pathVariables =
+				(Map<String, String>) exchangeAttributes.get(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
+
+		if (!CollectionUtils.isEmpty(pathVariables)) {
+			evaluationContext.setVariable("pathVariables", pathVariables);
+		}
+
+		Map<String, MultiValueMap<String, String>> matrixVariables =
+				(Map<String, MultiValueMap<String, String>>) exchangeAttributes
+						.get(HandlerMapping.MATRIX_VARIABLES_ATTRIBUTE);
+
+		if (!CollectionUtils.isEmpty(matrixVariables)) {
+			evaluationContext.setVariable("matrixVariables", matrixVariables);
+		}
+
+		evaluationContext.setRootObject(httpEntity);
+		return evaluationContext;
 	}
 
 	private Mono<Void> populateResponse(ServerWebExchange exchange, Message<?> replyMessage) {
@@ -379,7 +396,7 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 		}
 	}
 
-	@SuppressWarnings("unchecked")
+	@SuppressWarnings(UNCHECKED)
 	private Mono<Void> writeResponseBody(ServerWebExchange exchange, Object body) {
 		ResolvableType bodyType = ResolvableType.forInstance(body);
 		ReactiveAdapter adapter = this.adapterRegistry.getAdapter(bodyType.resolve(), body);
@@ -473,7 +490,6 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 		return (mediaTypes.isEmpty() ? Collections.singletonList(MediaType.ALL) : mediaTypes);
 	}
 
-	@SuppressWarnings("unchecked")
 	private List<MediaType> getProducibleTypes(ServerWebExchange exchange,
 			Supplier<List<MediaType>> producibleTypesSupplier) {
 
@@ -482,9 +498,9 @@ public class WebFluxInboundEndpoint extends BaseHttpInboundEndpoint implements W
 	}
 
 	private MediaType selectMoreSpecificMediaType(MediaType acceptable, MediaType producible) {
-		producible = producible.copyQualityValue(acceptable);
+		MediaType producibleToUse = producible.copyQualityValue(acceptable);
 		Comparator<MediaType> comparator = MediaType.SPECIFICITY_COMPARATOR;
-		return (comparator.compare(acceptable, producible) <= 0 ? acceptable : producible);
+		return (comparator.compare(acceptable, producibleToUse) <= 0 ? acceptable : producibleToUse);
 	}
 
 

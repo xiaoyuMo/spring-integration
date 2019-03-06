@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,7 +36,6 @@ import org.springframework.expression.EvaluationContext;
 import org.springframework.expression.EvaluationException;
 import org.springframework.expression.Expression;
 import org.springframework.integration.IntegrationMessageHeaderAccessor;
-import org.springframework.integration.context.IntegrationObjectSupport;
 import org.springframework.integration.expression.ExpressionUtils;
 import org.springframework.integration.store.MessageGroup;
 import org.springframework.integration.store.MessageGroupStore;
@@ -49,9 +48,9 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.MessageHandlingException;
 import org.springframework.messaging.MessagingException;
+import org.springframework.messaging.core.DestinationResolver;
 import org.springframework.messaging.support.ErrorMessage;
 import org.springframework.scheduling.TaskScheduler;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.ObjectUtils;
@@ -126,9 +125,10 @@ public class DelayHandler extends AbstractReplyProducingMessageHandler implement
 	 * Create a DelayHandler with the given 'messageGroupId' that is used as 'key' for
 	 * {@link MessageGroup} to store delayed Messages in the {@link MessageGroupStore}.
 	 * The sending of Messages after the delay will be handled by registered in the
-	 * ApplicationContext default {@link ThreadPoolTaskScheduler}.
+	 * ApplicationContext default
+	 * {@link org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler}.
 	 * @param messageGroupId The message group identifier.
-	 * @see IntegrationObjectSupport#getTaskScheduler()
+	 * @see #getTaskScheduler()
 	 */
 	public DelayHandler(String messageGroupId) {
 		Assert.notNull(messageGroupId, "'messageGroupId' must not be null");
@@ -143,7 +143,7 @@ public class DelayHandler extends AbstractReplyProducingMessageHandler implement
 	 */
 	public DelayHandler(String messageGroupId, TaskScheduler taskScheduler) {
 		this(messageGroupId);
-		this.setTaskScheduler(taskScheduler);
+		setTaskScheduler(taskScheduler);
 	}
 
 	/**
@@ -273,11 +273,9 @@ public class DelayHandler extends AbstractReplyProducingMessageHandler implement
 		if (this.delayedMessageErrorChannel != null) {
 			return this.delayedMessageErrorChannel;
 		}
-		if (this.delayedMessageErrorChannelName != null) {
-			if (getChannelResolver() != null) {
-				this.delayedMessageErrorChannel = getChannelResolver()
-						.resolveDestination(this.delayedMessageErrorChannelName);
-			}
+		DestinationResolver<MessageChannel> channelResolver = getChannelResolver();
+		if (this.delayedMessageErrorChannelName != null && channelResolver != null) {
+			this.delayedMessageErrorChannel = channelResolver.resolveDestination(this.delayedMessageErrorChannelName);
 		}
 		return this.delayedMessageErrorChannel;
 	}
@@ -300,16 +298,16 @@ public class DelayHandler extends AbstractReplyProducingMessageHandler implement
 	}
 
 	private MessageHandler createReleaseMessageTask() {
-		ReleaseMessageHandler releaseHandler = new ReleaseMessageHandler();
+		ReleaseMessageHandler handler = new ReleaseMessageHandler();
 
 		if (!CollectionUtils.isEmpty(this.delayedAdviceChain)) {
-			ProxyFactory proxyFactory = new ProxyFactory(releaseHandler);
+			ProxyFactory proxyFactory = new ProxyFactory(handler);
 			for (Advice advice : this.delayedAdviceChain) {
 				proxyFactory.addAdvice(advice);
 			}
 			return (MessageHandler) proxyFactory.getProxy(getApplicationContext().getClassLoader());
 		}
-		return releaseHandler;
+		return handler;
 	}
 
 	@Override
@@ -517,11 +515,9 @@ public class DelayHandler extends AbstractReplyProducingMessageHandler implement
 			}
 			handleMessageInternal(message);
 		}
-		else {
-			if (logger.isDebugEnabled()) {
-				logger.debug("No message in the Message Store to release: " + message +
-						". Likely another instance has already released it.");
-			}
+		else if (logger.isDebugEnabled()) {
+			logger.debug("No message in the Message Store to release: " + message +
+					". Likely another instance has already released it.");
 		}
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2018 the original author or authors.
+ * Copyright 2017-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,7 @@
 
 package org.springframework.integration.config.annotation;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -41,6 +39,8 @@ import org.springframework.messaging.core.DestinationResolutionException;
 
 /**
  * @author Gary Russell
+ * @author Artem Bilan
+ *
  * @since 4.3.8
  *
  */
@@ -58,6 +58,7 @@ public class MessagingAnnotationPostProcessorChannelCreationTests {
 		MessagingAnnotationPostProcessor mapp = new MessagingAnnotationPostProcessor();
 		mapp.setBeanFactory(beanFactory);
 		mapp.afterPropertiesSet();
+		mapp.afterSingletonsInstantiated();
 		mapp.postProcessAfterInitialization(new Foo(), "foo");
 		verify(beanFactory).registerSingleton(eq("channel"), any(DirectChannel.class));
 	}
@@ -74,14 +75,10 @@ public class MessagingAnnotationPostProcessorChannelCreationTests {
 		MessagingAnnotationPostProcessor mapp = new MessagingAnnotationPostProcessor();
 		mapp.setBeanFactory(beanFactory);
 		mapp.afterPropertiesSet();
-		try {
-			mapp.postProcessAfterInitialization(new Foo(), "foo");
-			fail("Expected a DestinationResolutionException");
-		}
-		catch (DestinationResolutionException e) {
-			assertThat(e.getMessage(),
-					containsString("A bean definition with name 'channel' exists, but failed to be created"));
-		}
+		mapp.afterSingletonsInstantiated();
+		assertThatExceptionOfType(DestinationResolutionException.class)
+				.isThrownBy(() -> mapp.postProcessAfterInitialization(new Foo(), "foo"))
+				.withMessageContaining("A bean definition with name 'channel' exists, but failed to be created");
 	}
 
 	public static class Foo {

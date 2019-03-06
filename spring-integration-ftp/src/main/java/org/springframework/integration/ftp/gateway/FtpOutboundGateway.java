@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,7 +64,7 @@ public class FtpOutboundGateway extends AbstractRemoteFileOutboundGateway<FTPFil
 	public FtpOutboundGateway(SessionFactory<FTPFile> sessionFactory,
 			MessageSessionCallback<FTPFile, ?> messageSessionCallback) {
 		this(new FtpRemoteFileTemplate(sessionFactory), messageSessionCallback);
-		((FtpRemoteFileTemplate) this.remoteFileTemplate).setExistsMode(FtpRemoteFileTemplate.ExistsMode.NLST);
+		((FtpRemoteFileTemplate) getRemoteFileTemplate()).setExistsMode(FtpRemoteFileTemplate.ExistsMode.NLST);
 	}
 
 	/**
@@ -87,7 +87,7 @@ public class FtpOutboundGateway extends AbstractRemoteFileOutboundGateway<FTPFil
 	 */
 	public FtpOutboundGateway(SessionFactory<FTPFile> sessionFactory, String command, String expression) {
 		this(new FtpRemoteFileTemplate(sessionFactory), command, expression);
-		((FtpRemoteFileTemplate) this.remoteFileTemplate).setExistsMode(FtpRemoteFileTemplate.ExistsMode.NLST);
+		((FtpRemoteFileTemplate) getRemoteFileTemplate()).setExistsMode(FtpRemoteFileTemplate.ExistsMode.NLST);
 	}
 
 	/**
@@ -261,15 +261,15 @@ public class FtpOutboundGateway extends AbstractRemoteFileOutboundGateway<FTPFil
 
 	private <V> V doInWorkingDirectory(Message<?> message, Session<FTPFile> session, Callable<V> task)
 			throws IOException {
-		Expression workingDirExpression = this.workingDirExpression;
+		Expression workDirExpression = this.workingDirExpression;
 		FTPClient ftpClient = (FTPClient) session.getClientInstance();
 		String currentWorkingDirectory = null;
 		boolean restoreWorkingDirectory = false;
 		try {
-			if (workingDirExpression != null) {
+			if (workDirExpression != null) {
 				currentWorkingDirectory = ftpClient.printWorkingDirectory();
 				String newWorkingDirectory =
-						workingDirExpression.getValue(this.evaluationContext, message, String.class);
+						workDirExpression.getValue(this.evaluationContext, message, String.class);
 				if (!Objects.equals(currentWorkingDirectory, newWorkingDirectory)) {
 					ftpClient.changeWorkingDirectory(newWorkingDirectory);
 					restoreWorkingDirectory = true;

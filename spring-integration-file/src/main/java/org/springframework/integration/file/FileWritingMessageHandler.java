@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
@@ -32,7 +33,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.BitSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -42,9 +42,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.context.Lifecycle;
@@ -59,9 +57,9 @@ import org.springframework.integration.handler.MessageTriggerAction;
 import org.springframework.integration.support.locks.DefaultLockRegistry;
 import org.springframework.integration.support.locks.LockRegistry;
 import org.springframework.integration.support.locks.PassThruLockRegistry;
+import org.springframework.integration.support.utils.IntegrationUtils;
 import org.springframework.integration.util.WhileLockedProcessor;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.MessageHandlingException;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.util.Assert;
@@ -69,7 +67,8 @@ import org.springframework.util.StreamUtils;
 import org.springframework.util.StringUtils;
 
 /**
- * A {@link MessageHandler} implementation that writes the Message payload to a
+ * A {@link org.springframework.messaging.MessageHandler} implementation
+ * that writes the Message payload to a
  * file. If the payload is a File object, it will copy the File to the specified
  * destination directory. If the payload is a byte array, a String or an
  * InputStream it will be written directly. Otherwise, the payload type is
@@ -111,13 +110,24 @@ import org.springframework.util.StringUtils;
 public class FileWritingMessageHandler extends AbstractReplyProducingMessageHandler
 		implements Lifecycle, MessageTriggerAction {
 
-	private final Log logger = LogFactory.getLog(this.getClass());
-
 	private static final int DEFAULT_BUFFER_SIZE = 8192;
 
 	private static final long DEFAULT_FLUSH_INTERVAL = 30000L;
 
-	private final Map<String, FileState> fileStates = new HashMap<String, FileState>();
+	private static final PosixFilePermission[] POSIX_FILE_PERMISSIONS =
+			{
+					PosixFilePermission.OTHERS_EXECUTE,
+					PosixFilePermission.OTHERS_WRITE,
+					PosixFilePermission.OTHERS_READ,
+					PosixFilePermission.GROUP_EXECUTE,
+					PosixFilePermission.GROUP_WRITE,
+					PosixFilePermission.GROUP_READ,
+					PosixFilePermission.OWNER_EXECUTE,
+					PosixFilePermission.OWNER_WRITE,
+					PosixFilePermission.OWNER_READ
+			};
+
+	private final Map<String, FileState> fileStates = new HashMap<>();
 
 	private final Expression destinationDirectoryExpression;
 
@@ -332,11 +342,6 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 		this.flushWhenIdle = flushWhenIdle;
 	}
 
-	@Override
-	public void setTaskScheduler(TaskScheduler taskScheduler) {
-		super.setTaskScheduler(taskScheduler);
-	}
-
 	/**
 	 * Set a {@link MessageFlushPredicate} to use when flushing files when
 	 * {@link FileExistsMode#APPEND_NO_FLUSH} is being used.
@@ -370,7 +375,7 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 	 */
 	public void setChmodOctal(String chmod) {
 		Assert.notNull(chmod, "'chmod' cannot be null");
-		setChmod(Integer.parseInt(chmod, 8));
+		setChmod(Integer.parseInt(chmod, 8)); // NOSONAR 8-bit
 	}
 
 	/**
@@ -382,53 +387,17 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 	 * @since 5.0
 	 */
 	public void setChmod(int chmod) {
-		Assert.isTrue(chmod >= 0 && chmod <= 0777, "'chmod' must be between 0 and 0777 (octal)");
+		Assert.isTrue(chmod >= 0 && chmod <= 0777, // NOSONAR permissions octal
+				"'chmod' must be between 0 and 0777 (octal)");
 		if (!FileUtils.IS_POSIX) {
 			this.logger.error("'chmod' setting ignored - the file system does not support Posix attributes");
 			return;
 		}
-		/*
-		 * Bitset.valueOf(byte[]) takes a little-endian array of bytes to create a BitSet.
-		 * Since we are interested in 9 bits, we construct an array with the low-order byte
-		 * (bits 0-7) followed by the second order byte (bit 8).
-		 * BitSet.stream() returns a stream of ints representing those bits that are set.
-		 * We use that stream with a switch to create the set of PosixFilePermissions
-		 * representing the bits that were set in the chmod value.
-		 */
-		BitSet bits = BitSet.valueOf(new byte[] { (byte) chmod, (byte) (chmod >> 8) });
-		final Set<PosixFilePermission> permissions = new HashSet<>();
-		bits.stream().forEach(b -> {
-			switch (b) {
-				case 0:
-					permissions.add(PosixFilePermission.OTHERS_EXECUTE);
-					break;
-				case 1:
-					permissions.add(PosixFilePermission.OTHERS_WRITE);
-					break;
-				case 2:
-					permissions.add(PosixFilePermission.OTHERS_READ);
-					break;
-				case 3:
-					permissions.add(PosixFilePermission.GROUP_EXECUTE);
-					break;
-				case 4:
-					permissions.add(PosixFilePermission.GROUP_WRITE);
-					break;
-				case 5:
-					permissions.add(PosixFilePermission.GROUP_READ);
-					break;
-				case 6:
-					permissions.add(PosixFilePermission.OWNER_EXECUTE);
-					break;
-				case 7:
-					permissions.add(PosixFilePermission.OWNER_WRITE);
-					break;
-				case 8:
-					permissions.add(PosixFilePermission.OWNER_READ);
-					break;
-			}
-		});
-		this.permissions = permissions;
+		BitSet bits = BitSet.valueOf(new byte[] { (byte) chmod, (byte) (chmod >> 8) }); // NOSONAR
+		this.permissions = bits.stream()
+				.boxed()
+				.map((b) -> POSIX_FILE_PERMISSIONS[b])
+				.collect(Collectors.toSet());
 	}
 
 	/**
@@ -448,9 +417,8 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 		this.evaluationContext = ExpressionUtils.createStandardEvaluationContext(getBeanFactory());
 
 		if (this.destinationDirectoryExpression instanceof LiteralExpression) {
-			final File directory =
-					new File(this.destinationDirectoryExpression.getValue(this.evaluationContext, String.class));
-
+			final File directory = ExpressionUtils.expressionToFile(this.destinationDirectoryExpression,
+					this.evaluationContext, null, "destinationDirectoryExpression");
 			validateDestinationDirectory(directory, this.autoCreateDirectory);
 		}
 
@@ -470,7 +438,7 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 		if (this.flushTask == null && FileExistsMode.APPEND_NO_FLUSH.equals(this.fileExistsMode)) {
 			TaskScheduler taskScheduler = getTaskScheduler();
 			Assert.state(taskScheduler != null, "'taskScheduler' is required for FileExistsMode.APPEND_NO_FLUSH");
-			this.flushTask = taskScheduler.scheduleAtFixedRate(new Flusher(), this.flushInterval / 3);
+			this.flushTask = taskScheduler.scheduleAtFixedRate(new Flusher(), this.flushInterval / 3); // NOSONAR
 		}
 	}
 
@@ -486,7 +454,7 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 		flusher.run();
 		boolean needInterrupt = this.fileStates.size() > 0;
 		int n = 0;
-		while (n++ < 10 && this.fileStates.size() > 0) {
+		while (n++ < 10 && this.fileStates.size() > 0) { // NOSONAR
 			try {
 				Thread.sleep(1);
 			}
@@ -521,15 +489,13 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 				() -> "Destination directory [" + destinationDirectory + "] is not writable.");
 	}
 
-	@Override
+	@Override // NOSONAR
 	protected Object handleRequestMessage(Message<?> requestMessage) {
-		Assert.notNull(requestMessage, "message must not be null");
 		Object payload = requestMessage.getPayload();
-		Assert.notNull(payload, "message payload must not be null");
 		String generatedFileName = this.fileNameGenerator.generateFileName(requestMessage);
 		File originalFileFromHeader = retrieveOriginalFileFromHeader(requestMessage);
 
-		final File destinationDirectoryToUse = evaluateDestinationDirectoryExpression(requestMessage);
+		File destinationDirectoryToUse = evaluateDestinationDirectoryExpression(requestMessage);
 
 		File tempFile = new File(destinationDirectoryToUse, generatedFileName + this.temporaryFileSuffix);
 		File resultFile = new File(destinationDirectoryToUse, generatedFileName);
@@ -544,7 +510,7 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 		if (payload instanceof File) {
 			timestamp = ((File) payload).lastModified();
 		}
-		boolean ignore = (FileExistsMode.IGNORE.equals(this.fileExistsMode)
+		boolean ignore = (FileExistsMode.IGNORE.equals(this.fileExistsMode) // NOSONAR
 				&& (exists || (StringUtils.hasText(this.temporaryFileSuffix) && tempFile.exists())))
 				|| ((exists && FileExistsMode.REPLACE_IF_MODIFIED.equals(this.fileExistsMode))
 				&& (timestamp instanceof Number
@@ -557,54 +523,65 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 					resultFile.getParentFile().mkdirs(); //NOSONAR - will fail on the writing below
 				}
 
-				if (payload instanceof File) {
-					resultFile = handleFileMessage((File) payload, tempFile, resultFile, requestMessage);
-				}
-				else if (payload instanceof InputStream) {
-					resultFile = handleInputStreamMessage((InputStream) payload, originalFileFromHeader, tempFile,
-							resultFile, requestMessage);
-				}
-				else if (payload instanceof byte[]) {
-					resultFile = this.handleByteArrayMessage(
-							(byte[]) payload, originalFileFromHeader, tempFile, resultFile, requestMessage);
-				}
-				else if (payload instanceof String) {
-					resultFile = this.handleStringMessage(
-							(String) payload, originalFileFromHeader, tempFile, resultFile, requestMessage);
-				}
-				else {
-					throw new IllegalArgumentException(
-							"unsupported Message payload type [" + payload.getClass().getName() + "]");
-				}
-				if (this.preserveTimestamp) {
-					if (timestamp instanceof Number) {
-						resultFile.setLastModified(((Number) timestamp).longValue());
-					}
-					else {
-						if (this.logger.isWarnEnabled()) {
-							this.logger.warn("Could not set lastModified, header " + FileHeaders.SET_MODIFIED
-									+ " must be a Number, not " + (timestamp == null ? "null" : timestamp.getClass()));
-						}
-					}
-				}
+				resultFile = writeMessageToFile(requestMessage, originalFileFromHeader, tempFile, resultFile,
+						timestamp);
 			}
 			catch (Exception e) {
-				throw new MessageHandlingException(requestMessage, "failed to write Message payload to file", e);
+				throw IntegrationUtils.wrapInHandlingExceptionIfNecessary(requestMessage,
+						() -> "failed to write Message payload to file", e);
 			}
-
 		}
 
 		if (!this.expectReply) {
 			return null;
 		}
 
-		if (resultFile != null) {
-			if (originalFileFromHeader == null && payload instanceof File) {
-				return this.getMessageBuilderFactory().withPayload(resultFile)
-						.setHeader(FileHeaders.ORIGINAL_FILE, payload);
-			}
+		if (resultFile != null && originalFileFromHeader == null && payload instanceof File) {
+			return getMessageBuilderFactory()
+					.withPayload(resultFile)
+					.setHeader(FileHeaders.ORIGINAL_FILE, payload);
 		}
 		return resultFile;
+	}
+
+	private File writeMessageToFile(Message<?> requestMessage, File originalFileFromHeader, File tempFile,
+			File resultFile, Object timestamp) throws IOException {
+
+		File fileToReturn = null;
+		Object payload = requestMessage.getPayload();
+		if (payload instanceof File) {
+			fileToReturn = handleFileMessage((File) payload, tempFile, resultFile, requestMessage);
+		}
+		else if (payload instanceof InputStream) {
+			fileToReturn = handleInputStreamMessage((InputStream) payload, originalFileFromHeader, tempFile,
+					resultFile, requestMessage);
+		}
+		else if (payload instanceof byte[]) {
+			fileToReturn = handleByteArrayMessage((byte[]) payload, originalFileFromHeader, tempFile, resultFile,
+					requestMessage);
+		}
+		else if (payload instanceof String) {
+			fileToReturn = handleStringMessage((String) payload, originalFileFromHeader, tempFile, resultFile,
+					requestMessage);
+		}
+		else {
+			throw new IllegalArgumentException(
+					"Unsupported Message payload type [" + payload.getClass().getName() + "]");
+		}
+
+		if (this.preserveTimestamp) {
+			if (timestamp instanceof Number) {
+				if (!fileToReturn.setLastModified(((Number) timestamp).longValue())) {
+					throw new IllegalStateException("Could not set last modified '" + timestamp
+							+ "' timestamp on file: " + fileToReturn);
+				}
+			}
+			else if (this.logger.isWarnEnabled()) {
+				this.logger.warn("Could not set lastModified, header " + FileHeaders.SET_MODIFIED
+						+ " must be a Number, not " + (timestamp == null ? "null" : timestamp.getClass()));
+			}
+		}
+		return fileToReturn;
 	}
 
 	/**
@@ -655,39 +632,7 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 						FileWritingMessageHandler.this.newFileCallback.accept(fileToWriteTo, requestMessage);
 					}
 
-					FileState state = getFileState(fileToWriteTo, false);
-					BufferedOutputStream bos = null;
-					try {
-						bos = state != null ? state.stream : createOutputStream(fileToWriteTo, true);
-						byte[] buffer = new byte[StreamUtils.BUFFER_SIZE];
-						int bytesRead = -1;
-						while ((bytesRead = sourceFileInputStream.read(buffer)) != -1) {
-							bos.write(buffer, 0, bytesRead);
-						}
-						if (FileWritingMessageHandler.this.appendNewLine) {
-							bos.write(System.lineSeparator().getBytes());
-						}
-					}
-					finally {
-						try {
-							sourceFileInputStream.close();
-						}
-						catch (IOException ex) {
-						}
-						try {
-							if (state == null || FileWritingMessageHandler.this.flushTask == null) {
-								if (bos != null) {
-									bos.close();
-								}
-								clearState(fileToWriteTo, state);
-							}
-							else {
-								state.lastWrite = System.currentTimeMillis();
-							}
-						}
-						catch (IOException ex) {
-						}
-					}
+					appendStreamToFile(fileToWriteTo, sourceFileInputStream);
 				}
 
 			};
@@ -697,35 +642,53 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 		}
 		else {
 
-			BufferedOutputStream bos = null;
-			try {
-				bos = new BufferedOutputStream(new FileOutputStream(tempFile), this.bufferSize);
+			try (InputStream inputStream = sourceFileInputStream;
+					OutputStream outputStream =
+							new BufferedOutputStream(new FileOutputStream(tempFile), this.bufferSize)) {
+
 				byte[] buffer = new byte[StreamUtils.BUFFER_SIZE];
-				int bytesRead = -1;
-				while ((bytesRead = sourceFileInputStream.read(buffer)) != -1) {
-					bos.write(buffer, 0, bytesRead);
+				int bytesRead;
+				while ((bytesRead = inputStream.read(buffer)) != -1) {
+					outputStream.write(buffer, 0, bytesRead);
 				}
 				if (this.appendNewLine) {
-					bos.write(System.lineSeparator().getBytes());
+					outputStream.write(System.lineSeparator().getBytes());
 				}
-				bos.flush();
-			}
-			finally {
-				try {
-					sourceFileInputStream.close();
-				}
-				catch (IOException ex) {
-				}
-				try {
-					if (bos != null) {
-						bos.close();
-					}
-				}
-				catch (IOException ex) {
-				}
+				outputStream.flush();
 			}
 			cleanUpAfterCopy(tempFile, resultFile, originalFile);
 			return resultFile;
+		}
+	}
+
+	private void appendStreamToFile(File fileToWriteTo, InputStream sourceFileInputStream) throws IOException {
+		FileState state = getFileState(fileToWriteTo, false);
+		BufferedOutputStream bos = null;
+		try (InputStream inputStream = sourceFileInputStream) {
+			bos = state != null ? state.stream : createOutputStream(fileToWriteTo, true);
+			byte[] buffer = new byte[StreamUtils.BUFFER_SIZE];
+			int bytesRead = -1;
+			while ((bytesRead = inputStream.read(buffer)) != -1) {
+				bos.write(buffer, 0, bytesRead);
+			}
+			if (FileWritingMessageHandler.this.appendNewLine) {
+				bos.write(System.lineSeparator().getBytes());
+			}
+		}
+		finally {
+			try {
+				if (state == null || FileWritingMessageHandler.this.flushTask == null) {
+					if (bos != null) {
+						bos.close();
+					}
+					clearState(fileToWriteTo, state);
+				}
+				else {
+					state.lastWrite = System.currentTimeMillis();
+				}
+			}
+			catch (IOException ex) {
+			}
 		}
 	}
 
@@ -746,36 +709,40 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 					FileWritingMessageHandler.this.newFileCallback.accept(fileToWriteTo, requestMessage);
 				}
 
-				FileState state = getFileState(fileToWriteTo, false);
-				BufferedOutputStream bos = null;
-				try {
-					bos = state != null ? state.stream : createOutputStream(fileToWriteTo, append);
-					bos.write(bytes);
-					if (FileWritingMessageHandler.this.appendNewLine) {
-						bos.write(System.lineSeparator().getBytes());
-					}
-				}
-				finally {
-					try {
-						if (state == null || FileWritingMessageHandler.this.flushTask == null) {
-							if (bos != null) {
-								bos.close();
-							}
-							clearState(fileToWriteTo, state);
-						}
-						else {
-							state.lastWrite = System.currentTimeMillis();
-						}
-					}
-					catch (IOException ex) {
-					}
-				}
+				writeBytesToFile(fileToWriteTo, append, bytes);
 			}
 
 		};
 		whileLockedProcessor.doWhileLocked();
-		this.cleanUpAfterCopy(fileToWriteTo, resultFile, originalFile);
+		cleanUpAfterCopy(fileToWriteTo, resultFile, originalFile);
 		return resultFile;
+	}
+
+	private void writeBytesToFile(File fileToWriteTo, boolean append, byte[] bytes) throws IOException {
+		FileState state = getFileState(fileToWriteTo, false);
+		BufferedOutputStream bos = null;
+		try {
+			bos = state != null ? state.stream : createOutputStream(fileToWriteTo, append);
+			bos.write(bytes);
+			if (this.appendNewLine) {
+				bos.write(System.lineSeparator().getBytes());
+			}
+		}
+		finally {
+			try {
+				if (state == null || this.flushTask == null) {
+					if (bos != null) {
+						bos.close();
+					}
+					clearState(fileToWriteTo, state);
+				}
+				else {
+					state.lastWrite = System.currentTimeMillis();
+				}
+			}
+			catch (IOException ex) {
+			}
+		}
 	}
 
 	private File handleStringMessage(String content, File originalFile, File tempFile, File resultFile,
@@ -795,38 +762,41 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 					FileWritingMessageHandler.this.newFileCallback.accept(fileToWriteTo, requestMessage);
 				}
 
-				FileState state = getFileState(fileToWriteTo, true);
-				BufferedWriter writer = null;
-				try {
-					writer = state != null ? state.writer : createWriter(fileToWriteTo, append);
-					writer.write(content);
-					if (FileWritingMessageHandler.this.appendNewLine) {
-						writer.newLine();
-					}
-				}
-				finally {
-					try {
-						if (state == null || FileWritingMessageHandler.this.flushTask == null) {
-							if (writer != null) {
-								writer.close();
-							}
-							clearState(fileToWriteTo, state);
-						}
-						else {
-							state.lastWrite = System.currentTimeMillis();
-						}
-					}
-					catch (IOException ex) {
-					}
-				}
-
+				writeStringToFile(fileToWriteTo, append, content);
 			}
 
 		};
 		whileLockedProcessor.doWhileLocked();
 
-		this.cleanUpAfterCopy(fileToWriteTo, resultFile, originalFile);
+		cleanUpAfterCopy(fileToWriteTo, resultFile, originalFile);
 		return resultFile;
+	}
+
+	private void writeStringToFile(File fileToWriteTo, boolean append, String content) throws IOException {
+		FileState state = getFileState(fileToWriteTo, true);
+		BufferedWriter writer = null;
+		try {
+			writer = state != null ? state.writer : createWriter(fileToWriteTo, append);
+			writer.write(content);
+			if (FileWritingMessageHandler.this.appendNewLine) {
+				writer.newLine();
+			}
+		}
+		finally {
+			try {
+				if (state == null || FileWritingMessageHandler.this.flushTask == null) {
+					if (writer != null) {
+						writer.close();
+					}
+					clearState(fileToWriteTo, state);
+				}
+				else {
+					state.lastWrite = System.currentTimeMillis();
+				}
+			}
+			catch (IOException ex) {
+			}
+		}
 	}
 
 	private File determineFileToWrite(File resultFile, File tempFile) {
@@ -857,8 +827,8 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 			this.renameTo(fileToWriteTo, resultFile);
 		}
 
-		if (this.deleteSourceFiles && originalFile != null) {
-			originalFile.delete();
+		if (this.deleteSourceFiles && originalFile != null && !originalFile.delete()) {
+			throw new IllegalStateException("Could not delete original file: " + originalFile);
 		}
 
 		setPermissions(resultFile);
@@ -910,7 +880,8 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 		if (appendNoFlush) {
 			String absolutePath = fileToWriteTo.getAbsolutePath();
 			state = this.fileStates.get(absolutePath);
-			if (state != null && ((isString && state.stream != null) || (!isString && state.writer != null))) {
+			if (state != null // NOSONAR
+					&& ((isString && state.stream != null) || (!isString && state.writer != null))) {
 				state.close();
 				state = null;
 				this.fileStates.remove(absolutePath);
@@ -1102,6 +1073,7 @@ public class FileWritingMessageHandler extends AbstractReplyProducingMessageHand
 				this.lock.unlock();
 			}
 		}
+
 	}
 
 	private final class Flusher implements Runnable {

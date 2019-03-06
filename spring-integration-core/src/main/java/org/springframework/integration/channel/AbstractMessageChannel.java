@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,11 +28,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.apache.commons.logging.Log;
 
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.core.OrderComparator;
 import org.springframework.integration.context.IntegrationContextUtils;
 import org.springframework.integration.context.IntegrationObjectSupport;
 import org.springframework.integration.history.MessageHistory;
-import org.springframework.integration.support.converter.DefaultDatatypeChannelMessageConverter;
 import org.springframework.integration.support.management.AbstractMessageChannelMetrics;
 import org.springframework.integration.support.management.ConfigurableMetricsAware;
 import org.springframework.integration.support.management.DefaultMessageChannelMetrics;
@@ -67,11 +67,12 @@ import org.springframework.util.StringUtils;
  * @author Artem Bilan
  */
 @IntegrationManagedResource
+@SuppressWarnings("deprecation")
 public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 		implements MessageChannel, TrackableComponent, ChannelInterceptorAware, MessageChannelMetrics,
 		ConfigurableMetricsAware<AbstractMessageChannelMetrics> {
 
-	protected final ChannelInterceptorList interceptors;
+	protected final ChannelInterceptorList interceptors; // NOSONAR
 
 	private final Comparator<Object> orderComparator = new OrderComparator();
 
@@ -120,6 +121,7 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 		this.metricsCaptor = metricsCaptor;
 	}
 
+	@Nullable
 	protected MetricsCaptor getMetricsCaptor() {
 		return this.metricsCaptor;
 	}
@@ -232,7 +234,8 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	 * expected that the converter will have fully populated the headers; no
 	 * further action is performed by the channel. If {@code null} is returned,
 	 * conversion to the next datatype (if any) will be attempted.
-	 * Defaults to a {@link DefaultDatatypeChannelMessageConverter}.
+	 * Defaults to a
+	 * {@link org.springframework.integration.support.converter.DefaultDatatypeChannelMessageConverter}.
 	 * @param messageConverter The message converter.
 	 */
 	public void setMessageConverter(MessageConverter messageConverter) {
@@ -243,7 +246,7 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	 * Return a read-only list of the configured interceptors.
 	 */
 	@Override
-	public List<ChannelInterceptor> getChannelInterceptors() {
+	public List<ChannelInterceptor> getInterceptors() {
 		return this.interceptors.getInterceptors();
 	}
 
@@ -253,15 +256,16 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	}
 
 	@Override
+	@Nullable
 	public ChannelInterceptor removeInterceptor(int index) {
 		return this.interceptors.remove(index);
 	}
 
 	/**
-	 * Exposes the interceptor list for subclasses.
+	 * Exposes the interceptor list instance for subclasses.
 	 * @return The channel interceptor list.
 	 */
-	protected ChannelInterceptorList getInterceptors() {
+	protected ChannelInterceptorList getIChannelInterceptorList() {
 		return this.interceptors;
 	}
 
@@ -351,22 +355,23 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	}
 
 	@Override
-	protected void onInit() throws Exception {
+	protected void onInit() {
 		super.onInit();
 		if (this.messageConverter == null) {
-			if (getBeanFactory() != null) {
-				if (getBeanFactory().containsBean(
-						IntegrationContextUtils.INTEGRATION_DATATYPE_CHANNEL_MESSAGE_CONVERTER_BEAN_NAME)) {
-					this.messageConverter = this.getBeanFactory().getBean(
-							IntegrationContextUtils.INTEGRATION_DATATYPE_CHANNEL_MESSAGE_CONVERTER_BEAN_NAME,
-							MessageConverter.class);
-				}
+			BeanFactory beanFactory = getBeanFactory();
+			if (beanFactory != null &&
+					beanFactory.containsBean(
+							IntegrationContextUtils.INTEGRATION_DATATYPE_CHANNEL_MESSAGE_CONVERTER_BEAN_NAME)) {
+
+				this.messageConverter =
+						beanFactory.getBean(
+								IntegrationContextUtils.INTEGRATION_DATATYPE_CHANNEL_MESSAGE_CONVERTER_BEAN_NAME,
+								MessageConverter.class);
 			}
 		}
 		if (this.statsEnabled) {
 			this.channelMetrics.setFullStatsEnabled(true);
 		}
-
 		this.fullChannelName = null;
 	}
 
@@ -406,45 +411,44 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	 * is interrupted. If the specified timeout is 0, the method will return
 	 * immediately. If less than zero, it will block indefinitely (see
 	 * {@link #send(Message)}).
-	 * @param message the Message to send
+	 * @param messageArg the Message to send
 	 * @param timeout the timeout in milliseconds
 	 * @return <code>true</code> if the message is sent successfully,
 	 * <code>false</code> if the message cannot be sent within the allotted
 	 * time or the sending thread is interrupted.
 	 */
 	@Override
-	public boolean send(Message<?> message, long timeout) {
-		Assert.notNull(message, "message must not be null");
-		Assert.notNull(message.getPayload(), "message payload must not be null");
+	public boolean send(Message<?> messageArg, long timeout) {
+		Assert.notNull(messageArg, "message must not be null");
+		Assert.notNull(messageArg.getPayload(), "message payload must not be null");
+		Message<?> message = messageArg;
 		if (this.shouldTrack) {
-			message = MessageHistory.write(message, this, this.getMessageBuilderFactory());
+			message = MessageHistory.write(message, this, getMessageBuilderFactory());
 		}
 
 		Deque<ChannelInterceptor> interceptorStack = null;
 		boolean sent = false;
 		boolean metricsProcessed = false;
-		MetricsContext metrics = null;
-		boolean countsEnabled = this.countsEnabled;
-		ChannelInterceptorList interceptors = this.interceptors;
-		AbstractMessageChannelMetrics channelMetrics = this.channelMetrics;
+		MetricsContext metricsContext = null;
+		boolean countsAreEnabled = this.countsEnabled;
+		ChannelInterceptorList interceptorList = this.interceptors;
+		AbstractMessageChannelMetrics metrics = this.channelMetrics;
 		SampleFacade sample = null;
 		try {
-			if (this.datatypes.length > 0) {
-				message = this.convertPayloadIfNecessary(message);
-			}
+			message = convertPayloadIfNecessary(message);
 			boolean debugEnabled = this.loggingEnabled && logger.isDebugEnabled();
 			if (debugEnabled) {
 				logger.debug("preSend on channel '" + this + "', message: " + message);
 			}
-			if (interceptors.getSize() > 0) {
+			if (interceptorList.getSize() > 0) {
 				interceptorStack = new ArrayDeque<>();
-				message = interceptors.preSend(message, this, interceptorStack);
+				message = interceptorList.preSend(message, this, interceptorStack);
 				if (message == null) {
 					return false;
 				}
 			}
-			if (countsEnabled) {
-				metrics = channelMetrics.beforeSend();
+			if (countsAreEnabled) {
+				metricsContext = metrics.beforeSend();
 				if (this.metricsCaptor != null) {
 					sample = this.metricsCaptor.start();
 				}
@@ -452,7 +456,7 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 				if (sample != null) {
 					sample.stop(sendTimer(sent));
 				}
-				channelMetrics.afterSend(metrics, sent);
+				metrics.afterSend(metricsContext, sent);
 				metricsProcessed = true;
 			}
 			else {
@@ -463,23 +467,23 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 				logger.debug("postSend (sent=" + sent + ") on channel '" + this + "', message: " + message);
 			}
 			if (interceptorStack != null) {
-				interceptors.postSend(message, this, sent);
-				interceptors.afterSendCompletion(message, this, sent, null, interceptorStack);
+				interceptorList.postSend(message, this, sent);
+				interceptorList.afterSendCompletion(message, this, sent, null, interceptorStack);
 			}
 			return sent;
 		}
-		catch (Exception e) {
-			if (countsEnabled && !metricsProcessed) {
+		catch (Exception ex) {
+			if (countsAreEnabled && !metricsProcessed) {
 				if (sample != null) {
-					sample.stop(buildSendTimer(false, e.getClass().getSimpleName()));
+					sample.stop(buildSendTimer(false, ex.getClass().getSimpleName()));
 				}
-				channelMetrics.afterSend(metrics, false);
+				metrics.afterSend(metricsContext, false);
 			}
 			if (interceptorStack != null) {
-				interceptors.afterSendCompletion(message, this, sent, e, interceptorStack);
+				interceptorList.afterSendCompletion(message, this, sent, ex, interceptorStack);
 			}
 			throw IntegrationUtils.wrapInDeliveryExceptionIfNecessary(message,
-					() -> "failed to send Message to channel '" + this.getComponentName() + "'", e);
+					() -> "failed to send Message to channel '" + this.getComponentName() + "'", ex);
 		}
 	}
 
@@ -511,33 +515,38 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	}
 
 	private Message<?> convertPayloadIfNecessary(Message<?> message) {
-		// first pass checks if the payload type already matches any of the datatypes
-		for (Class<?> datatype : this.datatypes) {
-			if (datatype.isAssignableFrom(message.getPayload().getClass())) {
-				return message;
-			}
-		}
-		if (this.messageConverter != null) {
-			// second pass applies conversion if possible, attempting datatypes in order
+		if (this.datatypes.length > 0) {
+			// first pass checks if the payload type already matches any of the datatypes
 			for (Class<?> datatype : this.datatypes) {
-				Object converted = this.messageConverter.fromMessage(message, datatype);
-				if (converted != null) {
-					if (converted instanceof Message) {
-						return (Message<?>) converted;
-					}
-					else {
-						return getMessageBuilderFactory()
-								.withPayload(converted)
-								.copyHeaders(message.getHeaders())
-								.build();
+				if (datatype.isAssignableFrom(message.getPayload().getClass())) {
+					return message;
+				}
+			}
+			if (this.messageConverter != null) {
+				// second pass applies conversion if possible, attempting datatypes in order
+				for (Class<?> datatype : this.datatypes) {
+					Object converted = this.messageConverter.fromMessage(message, datatype);
+					if (converted != null) {
+						if (converted instanceof Message) {
+							return (Message<?>) converted;
+						}
+						else {
+							return getMessageBuilderFactory()
+									.withPayload(converted)
+									.copyHeaders(message.getHeaders())
+									.build();
+						}
 					}
 				}
 			}
+			throw new MessageDeliveryException(message, "Channel '" + this.getComponentName() +
+					"' expected one of the following data types [" +
+					StringUtils.arrayToCommaDelimitedString(this.datatypes) +
+					"], but received [" + message.getPayload().getClass() + "]");
 		}
-		throw new MessageDeliveryException(message, "Channel '" + this.getComponentName() +
-				"' expected one of the following datataypes [" +
-				StringUtils.arrayToCommaDelimitedString(this.datatypes) +
-				"], but received [" + message.getPayload().getClass() + "]");
+		else {
+			return message;
+		}
 	}
 
 	/**
@@ -553,8 +562,9 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	protected abstract boolean doSend(Message<?> message, long timeout);
 
 	@Override
-	public void destroy() throws Exception {
+	public void destroy() {
 		this.meters.forEach(MeterFacade::remove);
+		this.meters.clear();
 	}
 
 	/**
@@ -562,9 +572,9 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 	 */
 	protected static class ChannelInterceptorList {
 
-		private final Log logger;
+		protected final List<ChannelInterceptor> interceptors = new CopyOnWriteArrayList<>(); // NOSONAR
 
-		protected final List<ChannelInterceptor> interceptors = new CopyOnWriteArrayList<ChannelInterceptor>();
+		private final Log logger;
 
 		private int size;
 
@@ -595,8 +605,10 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 		}
 
 		@Nullable
-		public Message<?> preSend(Message<?> message, MessageChannel channel,
+		public Message<?> preSend(Message<?> messageArg, MessageChannel channel,
 				Deque<ChannelInterceptor> interceptorStack) {
+
+			Message<?> message = messageArg;
 			if (this.size > 0) {
 				for (ChannelInterceptor interceptor : this.interceptors) {
 					Message<?> previous = message;
@@ -651,7 +663,8 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 		}
 
 		@Nullable
-		public Message<?> postReceive(Message<?> message, MessageChannel channel) {
+		public Message<?> postReceive(Message<?> messageArg, MessageChannel channel) {
+			Message<?> message = messageArg;
 			if (this.size > 0) {
 				for (ChannelInterceptor interceptor : this.interceptors) {
 					message = interceptor.postReceive(message, channel);
@@ -664,15 +677,17 @@ public abstract class AbstractMessageChannel extends IntegrationObjectSupport
 		}
 
 		public void afterReceiveCompletion(@Nullable Message<?> message, MessageChannel channel,
-				@Nullable Exception ex, Deque<ChannelInterceptor> interceptorStack) {
+				@Nullable Exception ex, @Nullable Deque<ChannelInterceptor> interceptorStack) {
 
-			for (Iterator<ChannelInterceptor> iterator = interceptorStack.descendingIterator(); iterator.hasNext(); ) {
-				ChannelInterceptor interceptor = iterator.next();
-				try {
-					interceptor.afterReceiveCompletion(message, channel, ex);
-				}
-				catch (Exception ex2) {
-					this.logger.error("Exception from afterReceiveCompletion in " + interceptor, ex2);
+			if (interceptorStack != null) {
+				for (Iterator<ChannelInterceptor> iterator = interceptorStack.descendingIterator(); iterator.hasNext(); ) {
+					ChannelInterceptor interceptor = iterator.next();
+					try {
+						interceptor.afterReceiveCompletion(message, channel, ex);
+					}
+					catch (Exception ex2) {
+						this.logger.error("Exception from afterReceiveCompletion in " + interceptor, ex2);
+					}
 				}
 			}
 		}

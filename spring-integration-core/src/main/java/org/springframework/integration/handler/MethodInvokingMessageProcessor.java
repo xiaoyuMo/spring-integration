@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,8 +23,9 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.context.Lifecycle;
 import org.springframework.core.convert.ConversionService;
 import org.springframework.integration.handler.support.MessagingMethodInvokerHelper;
+import org.springframework.integration.support.utils.IntegrationUtils;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
-import org.springframework.messaging.MessageHandlingException;
 
 /**
  * A MessageProcessor implementation that invokes a method on a target Object.
@@ -37,27 +38,28 @@ import org.springframework.messaging.MessageHandlingException;
  *
  * @author Dave Syer
  * @author Artem Bilan
+ * @author Gary Russell
  *
  * @since 2.0
  */
 public class MethodInvokingMessageProcessor<T> extends AbstractMessageProcessor<T> implements Lifecycle {
 
-	private final MessagingMethodInvokerHelper<T> delegate;
+	private final MessagingMethodInvokerHelper delegate;
 
 	public MethodInvokingMessageProcessor(Object targetObject, Method method) {
-		this.delegate = new MessagingMethodInvokerHelper<T>(targetObject, method, false);
+		this.delegate = new MessagingMethodInvokerHelper(targetObject, method, false);
 	}
 
 	public MethodInvokingMessageProcessor(Object targetObject, String methodName) {
-		this.delegate = new MessagingMethodInvokerHelper<T>(targetObject, methodName, false);
+		this.delegate = new MessagingMethodInvokerHelper(targetObject, methodName, false);
 	}
 
 	public MethodInvokingMessageProcessor(Object targetObject, String methodName, boolean canProcessMessageList) {
-		this.delegate = new MessagingMethodInvokerHelper<T>(targetObject, methodName, canProcessMessageList);
+		this.delegate = new MessagingMethodInvokerHelper(targetObject, methodName, canProcessMessageList);
 	}
 
 	public MethodInvokingMessageProcessor(Object targetObject, Class<? extends Annotation> annotationType) {
-		this.delegate = new MessagingMethodInvokerHelper<T>(targetObject, annotationType, false);
+		this.delegate = new MessagingMethodInvokerHelper(targetObject, annotationType, false);
 	}
 
 	@Override
@@ -99,12 +101,16 @@ public class MethodInvokingMessageProcessor<T> extends AbstractMessageProcessor<
 	}
 
 	@Override
+	@Nullable
+	@SuppressWarnings("unchecked")
 	public T processMessage(Message<?> message) {
 		try {
-			return this.delegate.process(message);
+			return (T) this.delegate.process(message);
 		}
-		catch (Exception e) {
-			throw new MessageHandlingException(message, e);
+		catch (Exception ex) {
+			throw IntegrationUtils.wrapInHandlingExceptionIfNecessary(message,
+					() -> "error occurred during processing message in 'MethodInvokingMessageProcessor' [" + this +
+							"]", ex);
 		}
 	}
 

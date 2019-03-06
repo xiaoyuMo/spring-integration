@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2018 the original author or authors.
+ * Copyright 2014-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,20 +16,8 @@
 
 package org.springframework.integration.configuration;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.CoreMatchers.not;
-import static org.hamcrest.Matchers.containsInAnyOrder;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.sameInstance;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -51,9 +39,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.aopalliance.aop.Advice;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.apache.commons.logging.Log;
-import org.hamcrest.BaseMatcher;
-import org.hamcrest.Description;
-import org.hamcrest.Matchers;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -92,6 +77,7 @@ import org.springframework.integration.annotation.Role;
 import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.annotation.Transformer;
 import org.springframework.integration.annotation.UseSpelInvoker;
+import org.springframework.integration.aop.PublisherAnnotationBeanPostProcessor;
 import org.springframework.integration.channel.AbstractMessageChannel;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.channel.NullChannel;
@@ -111,6 +97,7 @@ import org.springframework.integration.endpoint.MethodInvokingMessageSource;
 import org.springframework.integration.endpoint.PollingConsumer;
 import org.springframework.integration.expression.SpelPropertyAccessorRegistrar;
 import org.springframework.integration.gateway.GatewayProxyFactoryBean;
+import org.springframework.integration.handler.ServiceActivatingHandler;
 import org.springframework.integration.handler.advice.ExpressionEvaluatingRequestHandlerAdvice;
 import org.springframework.integration.history.MessageHistory;
 import org.springframework.integration.history.MessageHistoryConfigurer;
@@ -126,7 +113,6 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageDeliveryException;
 import org.springframework.messaging.MessageHandler;
-import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.PollableChannel;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.support.ChannelInterceptor;
@@ -294,19 +280,22 @@ public class EnableIntegrationTests {
 	@Qualifier("enableIntegrationTests.ChildConfiguration.autoCreatedChannelMessageSource.inboundChannelAdapter")
 	private Lifecycle autoCreatedChannelMessageSourceAdapter;
 
+	@Autowired
+	private PublisherAnnotationBeanPostProcessor publisherAnnotationBeanPostProcessor;
+
 	@Test
 	public void testAnnotatedServiceActivator() throws Exception {
 		this.serviceActivatorEndpoint.start();
-		assertTrue(this.inputReceiveLatch.await(10, TimeUnit.SECONDS));
+		assertThat(this.inputReceiveLatch.await(10, TimeUnit.SECONDS)).isTrue();
 
-		assertEquals(10L, TestUtils.getPropertyValue(this.serviceActivatorEndpoint, "maxMessagesPerPoll"));
+		assertThat(TestUtils.getPropertyValue(this.serviceActivatorEndpoint, "maxMessagesPerPoll")).isEqualTo(10L);
 
 		Trigger trigger = TestUtils.getPropertyValue(this.serviceActivatorEndpoint, "trigger", Trigger.class);
-		assertThat(trigger, Matchers.instanceOf(PeriodicTrigger.class));
-		assertEquals(100L, TestUtils.getPropertyValue(trigger, "period"));
-		assertFalse(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class));
+		assertThat(trigger).isInstanceOf(PeriodicTrigger.class);
+		assertThat(TestUtils.getPropertyValue(trigger, "period")).isEqualTo(100L);
+		assertThat(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class)).isFalse();
 
-		assertTrue(this.annotationTestService.isRunning());
+		assertThat(this.annotationTestService.isRunning()).isTrue();
 		Log logger = spy(TestUtils.getPropertyValue(this.serviceActivatorEndpoint, "logger", Log.class));
 		when(logger.isDebugEnabled()).thenReturn(true);
 		final CountDownLatch pollerInterruptedLatch = new CountDownLatch(1);
@@ -318,114 +307,120 @@ public class EnableIntegrationTests {
 		new DirectFieldAccessor(this.serviceActivatorEndpoint).setPropertyValue("logger", logger);
 
 		this.serviceActivatorEndpoint.stop();
-		assertFalse(this.annotationTestService.isRunning());
+		assertThat(this.annotationTestService.isRunning()).isFalse();
 
 		// wait until the service activator's poller is interrupted.
-		assertTrue(pollerInterruptedLatch.await(10, TimeUnit.SECONDS));
+		assertThat(pollerInterruptedLatch.await(10, TimeUnit.SECONDS)).isTrue();
 		this.serviceActivatorEndpoint.start();
-		assertTrue(this.annotationTestService.isRunning());
+		assertThat(this.annotationTestService.isRunning()).isTrue();
 
 		trigger = TestUtils.getPropertyValue(this.serviceActivatorEndpoint1, "trigger", Trigger.class);
-		assertThat(trigger, Matchers.instanceOf(PeriodicTrigger.class));
-		assertEquals(100L, TestUtils.getPropertyValue(trigger, "period"));
-		assertTrue(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class));
+		assertThat(trigger).isInstanceOf(PeriodicTrigger.class);
+		assertThat(TestUtils.getPropertyValue(trigger, "period")).isEqualTo(100L);
+		assertThat(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class)).isTrue();
 
 		trigger = TestUtils.getPropertyValue(this.serviceActivatorEndpoint2, "trigger", Trigger.class);
-		assertThat(trigger, Matchers.instanceOf(CronTrigger.class));
-		assertEquals("0 5 7 * * *", TestUtils.getPropertyValue(trigger, "sequenceGenerator.expression"));
+		assertThat(trigger).isInstanceOf(CronTrigger.class);
+		assertThat(TestUtils.getPropertyValue(trigger, "sequenceGenerator.expression")).isEqualTo("0 5 7 * * *");
 
 		trigger = TestUtils.getPropertyValue(this.serviceActivatorEndpoint3, "trigger", Trigger.class);
-		assertThat(trigger, Matchers.instanceOf(PeriodicTrigger.class));
-		assertEquals(11L, TestUtils.getPropertyValue(trigger, "period"));
-		assertFalse(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class));
+		assertThat(trigger).isInstanceOf(PeriodicTrigger.class);
+		assertThat(TestUtils.getPropertyValue(trigger, "period")).isEqualTo(11L);
+		assertThat(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class)).isFalse();
 
 		trigger = TestUtils.getPropertyValue(this.serviceActivatorEndpoint4, "trigger", Trigger.class);
-		assertThat(trigger, Matchers.instanceOf(PeriodicTrigger.class));
-		assertEquals(1000L, TestUtils.getPropertyValue(trigger, "period"));
-		assertFalse(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class));
-		assertSame(this.myTrigger, trigger);
+		assertThat(trigger).isInstanceOf(PeriodicTrigger.class);
+		assertThat(TestUtils.getPropertyValue(trigger, "period")).isEqualTo(1000L);
+		assertThat(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class)).isFalse();
+		assertThat(trigger).isSameAs(this.myTrigger);
 
 		trigger = TestUtils.getPropertyValue(this.transformer, "trigger", Trigger.class);
-		assertThat(trigger, Matchers.instanceOf(PeriodicTrigger.class));
-		assertEquals(10L, TestUtils.getPropertyValue(trigger, "period"));
-		assertFalse(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class));
+		assertThat(trigger).isInstanceOf(PeriodicTrigger.class);
+		assertThat(TestUtils.getPropertyValue(trigger, "period")).isEqualTo(10L);
+		assertThat(TestUtils.getPropertyValue(trigger, "fixedRate", Boolean.class)).isFalse();
 
 		this.input.send(MessageBuilder.withPayload("Foo").build());
 
 		Message<?> interceptedMessage = this.wireTapChannel.receive(10000);
-		assertNotNull(interceptedMessage);
-		assertEquals("Foo", interceptedMessage.getPayload());
+		assertThat(interceptedMessage).isNotNull();
+		assertThat(interceptedMessage.getPayload()).isEqualTo("Foo");
 
 		Message<?> receive = this.output.receive(10000);
-		assertNotNull(receive);
-		assertEquals("FOO", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("FOO");
 
 		receive = this.wireTapFromOutput.receive(10000);
-		assertNotNull(receive);
-		assertEquals("FOO", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("FOO");
 
 		MessageHistory messageHistory = receive.getHeaders().get(MessageHistory.HEADER_NAME, MessageHistory.class);
-		assertNotNull(messageHistory);
+		assertThat(messageHistory).isNotNull();
 		String messageHistoryString = messageHistory.toString();
-		assertThat(messageHistoryString, Matchers.containsString("input"));
-		assertThat(messageHistoryString,
-				Matchers.containsString("annotationTestService.handle.serviceActivator.handler"));
-		assertThat(messageHistoryString, Matchers.not(Matchers.containsString("output")));
+		assertThat(messageHistoryString).contains("input");
+		assertThat(messageHistoryString).contains("annotationTestService.handle.serviceActivator.handler");
+		assertThat(messageHistoryString).doesNotContain("output");
 
 		receive = this.publishedChannel.receive(10000);
 
-		assertNotNull(receive);
-		assertEquals("foo", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("foo");
 
 		messageHistory = receive.getHeaders().get(MessageHistory.HEADER_NAME, MessageHistory.class);
-		assertNotNull(messageHistory);
+		assertThat(messageHistory).isNotNull();
 		messageHistoryString = messageHistory.toString();
-		assertThat(messageHistoryString, Matchers.not(Matchers.containsString("input")));
-		assertThat(messageHistoryString, Matchers.not(Matchers.containsString("output")));
-		assertThat(messageHistoryString, Matchers.containsString("publishedChannel"));
+		assertThat(messageHistoryString).doesNotContain("input");
+		assertThat(messageHistoryString).doesNotContain("output");
+		assertThat(messageHistoryString).contains("publishedChannel");
 
-		assertNull(this.wireTapChannel.receive(0));
-		assertThat(this.testChannelInterceptor.getInvoked(), Matchers.greaterThan(0));
-		assertThat(this.fbInterceptorCounter.get(), Matchers.greaterThan(0));
+		assertThat(this.wireTapChannel.receive(0)).isNull();
+		assertThat(this.testChannelInterceptor.getInvoked()).isGreaterThan(0);
+		assertThat(this.fbInterceptorCounter.get()).isGreaterThan(0);
 
-		assertTrue(this.context.containsBean("annotationTestService.count.inboundChannelAdapter.source"));
+		assertThat(this.context.containsBean("annotationTestService.count.inboundChannelAdapter.source")).isTrue();
 		Object messageSource = this.context.getBean("annotationTestService.count.inboundChannelAdapter.source");
-		assertThat(messageSource, Matchers.instanceOf(MethodInvokingMessageSource.class));
+		assertThat(messageSource).isInstanceOf(MethodInvokingMessageSource.class);
 
-		assertNull(this.counterChannel.receive(10));
+		assertThat(this.counterChannel.receive(10)).isNull();
 
 		SmartLifecycle countSA = this.context.getBean("annotationTestService.count.inboundChannelAdapter",
 				SmartLifecycle.class);
-		assertFalse(countSA.isAutoStartup());
-		assertEquals(23, countSA.getPhase());
+		assertThat(countSA.isAutoStartup()).isFalse();
+		assertThat(countSA.getPhase()).isEqualTo(23);
 		countSA.start();
 
 		for (int i = 0; i < 10; i++) {
 			Message<?> message = this.counterChannel.receive(1000);
-			assertNotNull(message);
-			assertEquals(i + 1, message.getPayload());
+			assertThat(message).isNotNull();
+			assertThat(message.getPayload()).isEqualTo(i + 1);
 		}
 
 		Message<?> message = this.fooChannel.receive(1000);
-		assertNotNull(message);
-		assertEquals("foo", message.getPayload());
+		assertThat(message).isNotNull();
+		assertThat(message.getPayload()).isEqualTo("foo");
 		message = this.fooChannel.receive(1000);
-		assertNotNull(message);
-		assertEquals("foo", message.getPayload());
-		assertNull(this.fooChannel.receive(10));
+		assertThat(message).isNotNull();
+		assertThat(message.getPayload()).isEqualTo("foo");
+		assertThat(this.fooChannel.receive(10)).isNull();
 
 		message = this.messageChannel.receive(1000);
-		assertNotNull(message);
-		assertEquals("bar", message.getPayload());
-		assertTrue(message.getHeaders().containsKey("foo"));
-		assertEquals("FOO", message.getHeaders().get("foo"));
+		assertThat(message).isNotNull();
+		assertThat(message.getPayload()).isEqualTo("bar");
+		assertThat(message.getHeaders().containsKey("foo")).isTrue();
+		assertThat(message.getHeaders().get("foo")).isEqualTo("FOO");
 
 		MessagingTemplate messagingTemplate = new MessagingTemplate(this.controlBusChannel);
-		assertFalse(messagingTemplate.convertSendAndReceive("@lifecycle.isRunning()", Boolean.class));
-		this.controlBusChannel.send(new GenericMessage<String>("@lifecycle.start()"));
-		assertTrue(messagingTemplate.convertSendAndReceive("@lifecycle.isRunning()", Boolean.class));
-		this.controlBusChannel.send(new GenericMessage<String>("@lifecycle.stop()"));
-		assertFalse(messagingTemplate.convertSendAndReceive("@lifecycle.isRunning()", Boolean.class));
+		assertThat(messagingTemplate.convertSendAndReceive("@lifecycle.isRunning()", Boolean.class)).isEqualTo(false);
+		this.controlBusChannel.send(new GenericMessage<>("@lifecycle.start()"));
+		assertThat(messagingTemplate.convertSendAndReceive("@lifecycle.isRunning()", Boolean.class)).isEqualTo(true);
+		this.controlBusChannel.send(new GenericMessage<>("@lifecycle.stop()"));
+		assertThat(messagingTemplate.convertSendAndReceive("@lifecycle.isRunning()", Boolean.class)).isEqualTo(false);
+
+		Map<String, ServiceActivatingHandler> beansOfType =
+				this.context.getBeansOfType(ServiceActivatingHandler.class);
+
+		assertThat(beansOfType.keySet()
+				.contains("enableIntegrationTests.ContextConfiguration2.controlBus.serviceActivator.handler"))
+				.isFalse();
 	}
 
 	@Test
@@ -436,36 +431,37 @@ public class EnableIntegrationTests {
 			fail("ExpectedException");
 		}
 		catch (IllegalStateException e) {
-			assertThat(e.getMessage(), containsString("cannot be changed"));
+			assertThat(e.getMessage()).contains("cannot be changed");
 		}
 		this.configurer.stop();
 		this.configurer.setComponentNamePatterns(new String[] { "*" });
-		assertEquals("*", TestUtils.getPropertyValue(this.configurer, "componentNamePatterns", String[].class)[0]);
+		assertThat(TestUtils.getPropertyValue(this.configurer, "componentNamePatterns", String[].class)[0])
+				.isEqualTo("*");
 	}
 
 	@Test
 	public void testMessagingGateway() throws InterruptedException {
 		String payload = "bar";
 		String result = this.testGateway.echo(payload);
-		assertEquals(payload.toUpperCase(), result.substring(0, payload.length()));
-		assertThat(result, containsString("InvocableHandlerMethod"));
-		assertThat(result, not(containsString("SpelExpression")));
+		assertThat(result.substring(0, payload.length())).isEqualTo(payload.toUpperCase());
+		assertThat(result).contains("InvocableHandlerMethod");
+		assertThat(result).doesNotContain("SpelExpression");
 		result = this.testGateway2.echo2(payload);
-		assertNotNull(result);
-		assertEquals(payload.toUpperCase() + "2", result.substring(0, payload.length() + 1));
-		assertThat(result, not(containsString("InvocableHandlerMethod")));
-		assertThat(result, containsString("SpelExpression"));
-		assertThat(result, containsString("CompoundExpression.getValueInternal"));
-		assertNotNull(this.testGateway2.echo2("baz"));
+		assertThat(result).isNotNull();
+		assertThat(result.substring(0, payload.length() + 1)).isEqualTo(payload.toUpperCase() + "2");
+		assertThat(result).doesNotContain("InvocableHandlerMethod");
+		assertThat(result).contains("SpelExpression");
+		assertThat(result).contains("CompoundExpression.getValueInternal");
+		assertThat(this.testGateway2.echo2("baz")).isNotNull();
 		// third one should be compiled, but it's not since SF-5.0.2 - proxies aren't compilable SpELs any more
 		result = this.testGateway2.echo2("baz");
-		assertNotNull(result);
-		assertEquals("BAZ2", result.substring(0, 4));
-		assertThat(result, not(containsString("InvocableHandlerMethod")));
-		assertThat(result, containsString("SpelExpression"));
+		assertThat(result).isNotNull();
+		assertThat(result.substring(0, 4)).isEqualTo("BAZ2");
+		assertThat(result).doesNotContain("InvocableHandlerMethod");
+		assertThat(result).contains("SpelExpression");
 		this.testGateway.sendAsync("foo");
-		assertTrue(this.asyncAnnotationProcessLatch.await(1, TimeUnit.SECONDS));
-		assertThat(this.asyncAnnotationProcessThread.get(), not(sameInstance(Thread.currentThread())));
+		assertThat(this.asyncAnnotationProcessLatch.await(1, TimeUnit.SECONDS)).isTrue();
+		assertThat(this.asyncAnnotationProcessThread.get()).isNotSameAs(Thread.currentThread());
 	}
 
 	@Test
@@ -476,8 +472,8 @@ public class EnableIntegrationTests {
 		child.refresh();
 		AbstractMessageChannel foo = child.getBean("foo", AbstractMessageChannel.class);
 		ChannelInterceptor baz = child.getBean("baz", ChannelInterceptor.class);
-		assertTrue(foo.getChannelInterceptors().contains(baz));
-		assertFalse(this.output.getChannelInterceptors().contains(baz));
+		assertThat(foo.getChannelInterceptors().contains(baz)).isTrue();
+		assertThat(this.output.getChannelInterceptors().contains(baz)).isFalse();
 		child.close();
 	}
 
@@ -489,8 +485,8 @@ public class EnableIntegrationTests {
 		child.refresh();
 		AbstractMessageChannel foo = child.getBean("foo", AbstractMessageChannel.class);
 		ChannelInterceptor baz = child.getBean("baz", ChannelInterceptor.class);
-		assertTrue(foo.getChannelInterceptors().contains(baz));
-		assertFalse(this.output.getChannelInterceptors().contains(baz));
+		assertThat(foo.getChannelInterceptors().contains(baz)).isTrue();
+		assertThat(this.output.getChannelInterceptors().contains(baz)).isFalse();
 		child.close();
 	}
 
@@ -498,144 +494,145 @@ public class EnableIntegrationTests {
 	public void testIntegrationConverter() {
 		this.numberChannel.send(new GenericMessage<Integer>(10));
 		this.numberChannel.send(new GenericMessage<Boolean>(true));
-		assertThat(this.testConverter.getInvoked(), Matchers.greaterThan(0));
+		assertThat(this.testConverter.getInvoked()).isGreaterThan(0);
 
-		assertTrue(this.bytesChannel.send(new GenericMessage<byte[]>("foo".getBytes())));
-		assertTrue(this.bytesChannel.send(new GenericMessage<>(MutableMessageBuilder.withPayload("").build())));
+		assertThat(this.bytesChannel.send(new GenericMessage<byte[]>("foo".getBytes()))).isTrue();
+		assertThat(this.bytesChannel.send(new GenericMessage<>(MutableMessageBuilder.withPayload("").build())))
+				.isTrue();
 
 	}
 
 	@Test
 	public void testMetaAnnotations() {
 
-		assertEquals(2, this.context.getBeanNamesForType(GatewayProxyFactoryBean.class).length);
+		assertThat(this.context.getBeanNamesForType(GatewayProxyFactoryBean.class).length).isEqualTo(2);
 
 		PollingConsumer consumer = this.context.getBean("annotationTestService.annCount.serviceActivator",
 				PollingConsumer.class);
-		assertFalse(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class));
-		assertEquals(23, TestUtils.getPropertyValue(consumer, "phase"));
-		assertSame(context.getBean("annInput"), TestUtils.getPropertyValue(consumer, "inputChannel"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.outputChannelName"));
-		assertSame(context.getBean("annAdvice"), TestUtils.getPropertyValue(consumer,
-				"handler.adviceChain", List.class).get(0));
-		assertEquals(1000L, TestUtils.getPropertyValue(consumer, "trigger.period"));
+		assertThat(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class)).isFalse();
+		assertThat(TestUtils.getPropertyValue(consumer, "phase")).isEqualTo(23);
+		assertThat(TestUtils.getPropertyValue(consumer, "inputChannel")).isSameAs(context.getBean("annInput"));
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.outputChannelName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer,
+				"handler.adviceChain", List.class).get(0)).isSameAs(context.getBean("annAdvice"));
+		assertThat(TestUtils.getPropertyValue(consumer, "trigger.period")).isEqualTo(1000L);
 
 		consumer = this.context.getBean("annotationTestService.annCount1.serviceActivator",
 				PollingConsumer.class);
 		consumer.stop();
-		assertTrue(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class));
-		assertEquals(23, TestUtils.getPropertyValue(consumer, "phase"));
-		assertSame(context.getBean("annInput1"), TestUtils.getPropertyValue(consumer, "inputChannel"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.outputChannel.beanName"));
-		assertSame(context.getBean("annAdvice1"), TestUtils.getPropertyValue(consumer,
-				"handler.adviceChain", List.class).get(0));
-		assertEquals(2000L, TestUtils.getPropertyValue(consumer, "trigger.period"));
+		assertThat(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class)).isTrue();
+		assertThat(TestUtils.getPropertyValue(consumer, "phase")).isEqualTo(23);
+		assertThat(TestUtils.getPropertyValue(consumer, "inputChannel")).isSameAs(context.getBean("annInput1"));
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.outputChannel.beanName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer,
+				"handler.adviceChain", List.class).get(0)).isSameAs(context.getBean("annAdvice1"));
+		assertThat(TestUtils.getPropertyValue(consumer, "trigger.period")).isEqualTo(2000L);
 
 		consumer = this.context.getBean("annotationTestService.annCount2.serviceActivator",
 				PollingConsumer.class);
-		assertFalse(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class));
-		assertEquals(23, TestUtils.getPropertyValue(consumer, "phase"));
-		assertSame(context.getBean("annInput"), TestUtils.getPropertyValue(consumer, "inputChannel"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.outputChannelName"));
-		assertSame(context.getBean("annAdvice"), TestUtils.getPropertyValue(consumer,
-				"handler.adviceChain", List.class).get(0));
-		assertEquals(1000L, TestUtils.getPropertyValue(consumer, "trigger.period"));
+		assertThat(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class)).isFalse();
+		assertThat(TestUtils.getPropertyValue(consumer, "phase")).isEqualTo(23);
+		assertThat(TestUtils.getPropertyValue(consumer, "inputChannel")).isSameAs(context.getBean("annInput"));
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.outputChannelName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer,
+				"handler.adviceChain", List.class).get(0)).isSameAs(context.getBean("annAdvice"));
+		assertThat(TestUtils.getPropertyValue(consumer, "trigger.period")).isEqualTo(1000L);
 
 		// Tests when the channel is in a "middle" annotation
 		consumer = this.context.getBean("annotationTestService.annCount5.serviceActivator", PollingConsumer.class);
-		assertFalse(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class));
-		assertEquals(23, TestUtils.getPropertyValue(consumer, "phase"));
-		assertSame(context.getBean("annInput3"), TestUtils.getPropertyValue(consumer, "inputChannel"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.outputChannelName"));
-		assertSame(context.getBean("annAdvice"), TestUtils.getPropertyValue(consumer,
-				"handler.adviceChain", List.class).get(0));
-		assertEquals(1000L, TestUtils.getPropertyValue(consumer, "trigger.period"));
+		assertThat(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class)).isFalse();
+		assertThat(TestUtils.getPropertyValue(consumer, "phase")).isEqualTo(23);
+		assertThat(TestUtils.getPropertyValue(consumer, "inputChannel")).isSameAs(context.getBean("annInput3"));
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.outputChannelName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer,
+				"handler.adviceChain", List.class).get(0)).isSameAs(context.getBean("annAdvice"));
+		assertThat(TestUtils.getPropertyValue(consumer, "trigger.period")).isEqualTo(1000L);
 
 		consumer = this.context.getBean("annotationTestService.annAgg1.aggregator", PollingConsumer.class);
-		assertFalse(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class));
-		assertEquals(23, TestUtils.getPropertyValue(consumer, "phase"));
-		assertSame(context.getBean("annInput"), TestUtils.getPropertyValue(consumer, "inputChannel"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.outputChannelName"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.discardChannelName"));
-		assertEquals(1000L, TestUtils.getPropertyValue(consumer, "trigger.period"));
-		assertEquals(-1L, TestUtils.getPropertyValue(consumer, "handler.messagingTemplate.sendTimeout"));
-		assertFalse(TestUtils.getPropertyValue(consumer, "handler.sendPartialResultOnExpiry", Boolean.class));
+		assertThat(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class)).isFalse();
+		assertThat(TestUtils.getPropertyValue(consumer, "phase")).isEqualTo(23);
+		assertThat(TestUtils.getPropertyValue(consumer, "inputChannel")).isSameAs(context.getBean("annInput"));
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.outputChannelName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.discardChannelName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer, "trigger.period")).isEqualTo(1000L);
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.messagingTemplate.sendTimeout")).isEqualTo(-1L);
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.sendPartialResultOnExpiry", Boolean.class)).isFalse();
 
 		consumer = this.context.getBean("annotationTestService.annAgg2.aggregator", PollingConsumer.class);
-		assertFalse(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class));
-		assertEquals(23, TestUtils.getPropertyValue(consumer, "phase"));
-		assertSame(context.getBean("annInput"), TestUtils.getPropertyValue(consumer, "inputChannel"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.outputChannelName"));
-		assertEquals("annOutput", TestUtils.getPropertyValue(consumer, "handler.discardChannelName"));
-		assertEquals(1000L, TestUtils.getPropertyValue(consumer, "trigger.period"));
-		assertEquals(75L, TestUtils.getPropertyValue(consumer, "handler.messagingTemplate.sendTimeout"));
-		assertTrue(TestUtils.getPropertyValue(consumer, "handler.sendPartialResultOnExpiry", Boolean.class));
+		assertThat(TestUtils.getPropertyValue(consumer, "autoStartup", Boolean.class)).isFalse();
+		assertThat(TestUtils.getPropertyValue(consumer, "phase")).isEqualTo(23);
+		assertThat(TestUtils.getPropertyValue(consumer, "inputChannel")).isSameAs(context.getBean("annInput"));
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.outputChannelName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.discardChannelName")).isEqualTo("annOutput");
+		assertThat(TestUtils.getPropertyValue(consumer, "trigger.period")).isEqualTo(1000L);
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.messagingTemplate.sendTimeout")).isEqualTo(75L);
+		assertThat(TestUtils.getPropertyValue(consumer, "handler.sendPartialResultOnExpiry", Boolean.class)).isTrue();
 	}
 
 	@Test
 	public void testBridgeAnnotations() {
 		GenericMessage<?> testMessage = new GenericMessage<Object>("foo");
 		this.bridgeInput.send(testMessage);
-		Message<?> receive = this.bridgeOutput.receive(2000);
-		assertNotNull(receive);
-		assertSame(receive, testMessage);
-		assertNull(this.bridgeOutput.receive(10));
+		Message<?> receive = this.bridgeOutput.receive(10_000);
+		assertThat(receive).isNotNull();
+		assertThat(testMessage).isSameAs(receive);
+		assertThat(this.bridgeOutput.receive(10)).isNull();
 
 		this.pollableBridgeInput.send(testMessage);
-		receive = this.pollableBridgeOutput.receive(2000);
-		assertNotNull(receive);
-		assertSame(receive, testMessage);
-		assertNull(this.pollableBridgeOutput.receive(10));
+		receive = this.pollableBridgeOutput.receive(10_000);
+		assertThat(receive).isNotNull();
+		assertThat(testMessage).isSameAs(receive);
+		assertThat(this.pollableBridgeOutput.receive(10)).isNull();
 
 		try {
 			this.metaBridgeInput.send(testMessage);
 			fail("MessageDeliveryException expected");
 		}
 		catch (Exception e) {
-			assertThat(e, Matchers.instanceOf(MessageDeliveryException.class));
-			assertThat(e.getMessage(), Matchers.containsString("Dispatcher has no subscribers"));
+			assertThat(e).isInstanceOf(MessageDeliveryException.class);
+			assertThat(e.getMessage()).contains("Dispatcher has no subscribers");
 		}
 
 		this.context.getBean("enableIntegrationTests.ContextConfiguration.metaBridgeOutput.bridgeFrom",
 				Lifecycle.class).start();
 
 		this.metaBridgeInput.send(testMessage);
-		receive = this.metaBridgeOutput.receive(2000);
-		assertNotNull(receive);
-		assertSame(receive, testMessage);
-		assertNull(this.metaBridgeOutput.receive(10));
+		receive = this.metaBridgeOutput.receive(10_000);
+		assertThat(receive).isNotNull();
+		assertThat(testMessage).isSameAs(receive);
+		assertThat(this.metaBridgeOutput.receive(10)).isNull();
 
 		this.bridgeToInput.send(testMessage);
-		receive = this.bridgeToOutput.receive(2000);
-		assertNotNull(receive);
-		assertSame(receive, testMessage);
-		assertNull(this.bridgeToOutput.receive(10));
+		receive = this.bridgeToOutput.receive(10_000);
+		assertThat(receive).isNotNull();
+		assertThat(testMessage).isSameAs(receive);
+		assertThat(this.bridgeToOutput.receive(10)).isNull();
 
 		PollableChannel replyChannel = new QueueChannel();
 		Message<?> bridgeMessage = MessageBuilder.fromMessage(testMessage).setReplyChannel(replyChannel).build();
 		this.pollableBridgeToInput.send(bridgeMessage);
-		receive = replyChannel.receive(2000);
-		assertNotNull(receive);
-		assertSame(receive, bridgeMessage);
-		assertNull(replyChannel.receive(10));
+		receive = replyChannel.receive(10_000);
+		assertThat(receive).isNotNull();
+		assertThat(bridgeMessage).isSameAs(receive);
+		assertThat(replyChannel.receive(10)).isNull();
 
 		try {
 			this.myBridgeToInput.send(testMessage);
 			fail("MessageDeliveryException expected");
 		}
 		catch (Exception e) {
-			assertThat(e, Matchers.instanceOf(MessageDeliveryException.class));
-			assertThat(e.getMessage(), Matchers.containsString("Dispatcher has no subscribers"));
+			assertThat(e).isInstanceOf(MessageDeliveryException.class);
+			assertThat(e.getMessage()).contains("Dispatcher has no subscribers");
 		}
 
 		this.context.getBean("enableIntegrationTests.ContextConfiguration.myBridgeToInput.bridgeTo",
 				Lifecycle.class).start();
 
 		this.myBridgeToInput.send(bridgeMessage);
-		receive = replyChannel.receive(2000);
-		assertNotNull(receive);
-		assertSame(receive, bridgeMessage);
-		assertNull(replyChannel.receive(10));
+		receive = replyChannel.receive(10_000);
+		assertThat(receive).isNotNull();
+		assertThat(bridgeMessage).isSameAs(receive);
+		assertThat(replyChannel.receive(10)).isNull();
 	}
 
 	@Test
@@ -654,42 +651,42 @@ public class EnableIntegrationTests {
 				});
 
 
-		assertTrue(consumeLatch.await(0, TimeUnit.SECONDS)); // runs on same thread
+		assertThat(consumeLatch.await(0, TimeUnit.SECONDS)).isTrue(); // runs on same thread
 
 		List<Integer> integers = ref.get();
-		assertEquals(5, integers.size());
+		assertThat(integers.size()).isEqualTo(5);
 
-		assertThat(integers, Matchers.<Integer>contains(2, 4, 6, 8, 10));
+		assertThat(integers).containsExactly(2, 4, 6, 8, 10);
 	}
 
 	@Test
 	@DirtiesContext
 	public void testRoles() {
-		assertThat(this.roleController.getRoles(), containsInAnyOrder("foo", "bar"));
-		assertFalse(this.roleController.allEndpointsRunning("foo"));
-		assertFalse(this.roleController.noEndpointsRunning("foo"));
-		assertTrue(this.roleController.allEndpointsRunning("bar"));
-		assertFalse(this.roleController.noEndpointsRunning("bar"));
+		assertThat(this.roleController.getRoles()).contains("foo", "bar");
+		assertThat(this.roleController.allEndpointsRunning("foo")).isFalse();
+		assertThat(this.roleController.noEndpointsRunning("foo")).isFalse();
+		assertThat(this.roleController.allEndpointsRunning("bar")).isTrue();
+		assertThat(this.roleController.noEndpointsRunning("bar")).isFalse();
 		Map<String, Boolean> state = this.roleController.getEndpointsRunningStatus("foo");
-		assertThat(state.get("annotationTestService.handle.serviceActivator"), equalTo(Boolean.FALSE));
-		assertThat(state.get("enableIntegrationTests.ContextConfiguration2.sendAsyncHandler.serviceActivator"),
-				equalTo(Boolean.TRUE));
+		assertThat(state.get("annotationTestService.handle.serviceActivator")).isEqualTo(Boolean.FALSE);
+		assertThat(state.get("enableIntegrationTests.ContextConfiguration2.sendAsyncHandler.serviceActivator"))
+				.isEqualTo(Boolean.TRUE);
 		this.roleController.startLifecyclesInRole("foo");
-		assertTrue(this.roleController.allEndpointsRunning("foo"));
+		assertThat(this.roleController.allEndpointsRunning("foo")).isTrue();
 		this.roleController.stopLifecyclesInRole("foo");
-		assertFalse(this.roleController.allEndpointsRunning("foo"));
-		assertTrue(this.roleController.noEndpointsRunning("foo"));
+		assertThat(this.roleController.allEndpointsRunning("foo")).isFalse();
+		assertThat(this.roleController.noEndpointsRunning("foo")).isTrue();
 
 		@SuppressWarnings("unchecked")
 		MultiValueMap<String, SmartLifecycle> lifecycles = TestUtils.getPropertyValue(this.roleController,
 				"lifecycles", MultiValueMap.class);
-		assertEquals(2, lifecycles.size());
-		assertEquals(2, lifecycles.get("foo").size());
-		assertEquals(1, lifecycles.get("bar").size());
-		assertFalse(this.serviceActivatorEndpoint.isRunning());
-		assertFalse(this.sendAsyncHandler.isRunning());
-		assertEquals(2, lifecycles.size());
-		assertEquals(2, lifecycles.get("foo").size());
+		assertThat(lifecycles.size()).isEqualTo(2);
+		assertThat(lifecycles.get("foo").size()).isEqualTo(2);
+		assertThat(lifecycles.get("bar").size()).isEqualTo(1);
+		assertThat(this.serviceActivatorEndpoint.isRunning()).isFalse();
+		assertThat(this.sendAsyncHandler.isRunning()).isFalse();
+		assertThat(lifecycles.size()).isEqualTo(2);
+		assertThat(lifecycles.get("foo").size()).isEqualTo(2);
 	}
 
 	@Test
@@ -702,8 +699,8 @@ public class EnableIntegrationTests {
 
 		this.autoCreatedChannelMessageSourceAdapter.start();
 		Message<?> receive = testChannel.receive(10000);
-		assertNotNull(receive);
-		assertEquals("bar", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("bar");
 		this.autoCreatedChannelMessageSourceAdapter.stop();
 	}
 
@@ -711,14 +708,15 @@ public class EnableIntegrationTests {
 	public void testIntegrationEvaluationContextCustomization() {
 		EvaluationContext evaluationContext = this.context.getBean(StandardEvaluationContext.class);
 		List<?> propertyAccessors = TestUtils.getPropertyValue(evaluationContext, "propertyAccessors", List.class);
-		assertEquals(4, propertyAccessors.size());
-		assertThat(propertyAccessors.get(0), instanceOf(JsonPropertyAccessor.class));
-		assertThat(propertyAccessors.get(1), instanceOf(EnvironmentAccessor.class));
-		assertThat(propertyAccessors.get(2), instanceOf(MapAccessor.class));
-		assertThat(propertyAccessors.get(3), instanceOf(ReflectivePropertyAccessor.class));
+		assertThat(propertyAccessors.size()).isEqualTo(4);
+		assertThat(propertyAccessors.get(0)).isInstanceOf(JsonPropertyAccessor.class);
+		assertThat(propertyAccessors.get(1)).isInstanceOf(EnvironmentAccessor.class);
+		assertThat(propertyAccessors.get(2)).isInstanceOf(MapAccessor.class);
+		assertThat(propertyAccessors.get(3)).isInstanceOf(ReflectivePropertyAccessor.class);
 		Map<?, ?> variables = TestUtils.getPropertyValue(evaluationContext, "variables", Map.class);
 		Object testSpelFunction = variables.get("testSpelFunction");
-		assertEquals(ClassUtils.getStaticMethod(TestSpelFunction.class, "bar", Object.class), testSpelFunction);
+		assertThat(testSpelFunction).isEqualTo(ClassUtils.getStaticMethod(TestSpelFunction.class, "bar",
+				Object.class));
 	}
 
 	@Autowired
@@ -735,15 +733,19 @@ public class EnableIntegrationTests {
 
 		Message<?> receive = this.myHandlerSuccessChannel.receive(10_000);
 
-		assertNotNull(receive);
-		assertEquals(testDate, receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo(testDate);
+
+		assertThat(this.publisherAnnotationBeanPostProcessor.isProxyTargetClass()).isTrue();
+		assertThat(this.publisherAnnotationBeanPostProcessor.getOrder()).isEqualTo(Integer.MAX_VALUE - 1);
 	}
 
 	@Configuration
 	@ComponentScan
 	@IntegrationComponentScan
 	@EnableIntegration
-//	INT-3853 @PropertySource("classpath:org/springframework/integration/configuration/EnableIntegrationTests.properties")
+	//	INT-3853
+	//	@PropertySource("classpath:org/springframework/integration/configuration/EnableIntegrationTests.properties")
 	@EnableMessageHistory({ "input", "publishedChannel", "annotationTestService*" })
 	public static class ContextConfiguration {
 
@@ -989,7 +991,7 @@ public class EnableIntegrationTests {
 	@EnableIntegration
 	@ImportResource("classpath:org/springframework/integration/configuration/EnableIntegrationTests-context.xml")
 	@EnableMessageHistory("${message.history.tracked.components}")
-	@EnablePublisher("publishedChannel")
+	@EnablePublisher(defaultChannel = "publishedChannel")
 	@EnableAsync
 	public static class ContextConfiguration2 {
 
@@ -1019,14 +1021,9 @@ public class EnableIntegrationTests {
 		@ServiceActivator(inputChannel = "sendAsyncChannel")
 		@Role("foo")
 		public MessageHandler sendAsyncHandler() {
-			return new MessageHandler() {
-
-				@Override
-				public void handleMessage(Message<?> message) throws MessagingException {
-					asyncAnnotationProcessThread().set(Thread.currentThread());
-					asyncAnnotationProcessLatch().countDown();
-				}
-
+			return message -> {
+				asyncAnnotationProcessThread().set(Thread.currentThread());
+				asyncAnnotationProcessLatch().countDown();
 			};
 		}
 
@@ -1132,7 +1129,7 @@ public class EnableIntegrationTests {
 
 		@Bean
 		public AnnotationTestService annotationTestService() {
-			return new AnnotationTestServiceImpl();
+			return new AnnotationTestService();
 		}
 
 		@Bean
@@ -1148,13 +1145,13 @@ public class EnableIntegrationTests {
 		@Bean
 		@ServiceActivator(inputChannel = "myHandlerChannel", adviceChain = "myHandlerAdvice")
 		public MessageHandler myHandler() {
-			return message -> { };
+			return message -> {
+			};
 		}
 
 		@Bean
 		public Advice myHandlerAdvice() {
 			ExpressionEvaluatingRequestHandlerAdvice advice = new ExpressionEvaluatingRequestHandlerAdvice();
-			advice.setOnSuccessExpressionString("payload");
 			advice.setSuccessChannel(myHandlerSuccessChannel());
 			return advice;
 		}
@@ -1191,53 +1188,12 @@ public class EnableIntegrationTests {
 
 	}
 
-	public interface AnnotationTestService {
-
-		String handle(String payload);
-
-		String handle1(String payload);
-
-		String handle2(String payload);
-
-		String handle3(String payload);
-
-		String handle4(String payload);
-
-		String transform(Message<String> message);
-
-		String transform2(Message<String> message);
-
-		Integer count();
-
-		String foo();
-
-		Message<?> message();
-
-		Integer annCount();
-
-		Integer annCount1();
-
-		Integer annCount2();
-
-		Integer annCount5();
-
-		Integer annCount8();
-
-		Integer annAgg1(List<?> messages);
-
-		Integer annAgg2(List<?> messages);
-
-		Integer multiply(Integer value);
-
-	}
-
-	public static class AnnotationTestServiceImpl implements Lifecycle, AnnotationTestService {
+	public static class AnnotationTestService implements Lifecycle {
 
 		private final AtomicInteger counter = new AtomicInteger();
 
 		private boolean running;
 
-		@Override
 		@ServiceActivator(inputChannel = "input", outputChannel = "output", autoStartup = "false",
 				poller = @Poller(maxMessagesPerPoll = "${poller.maxMessagesPerPoll}",
 						fixedDelay = "${poller.interval}",
@@ -1249,7 +1205,6 @@ public class EnableIntegrationTests {
 			return payload.toUpperCase();
 		}
 
-		@Override
 		@ServiceActivator(inputChannel = "input1", outputChannel = "output",
 				poller = @Poller(maxMessagesPerPoll = "${poller.maxMessagesPerPoll}",
 						fixedRate = "${poller.interval}"))
@@ -1259,7 +1214,6 @@ public class EnableIntegrationTests {
 			return payload.toUpperCase();
 		}
 
-		@Override
 		@ServiceActivator(inputChannel = "input2", outputChannel = "output",
 				poller = @Poller(maxMessagesPerPoll = "${poller.maxMessagesPerPoll}", cron = "0 5 7 * * *"))
 		@Publisher
@@ -1268,7 +1222,6 @@ public class EnableIntegrationTests {
 			return payload.toUpperCase();
 		}
 
-		@Override
 		@ServiceActivator(inputChannel = "input3", outputChannel = "output", poller = @Poller("myPoller"))
 		@Publisher
 		@Payload("#args[0].toLowerCase()")
@@ -1276,7 +1229,6 @@ public class EnableIntegrationTests {
 			return payload.toUpperCase();
 		}
 
-		@Override
 		@ServiceActivator(inputChannel = "input4", outputChannel = "output",
 				poller = @Poller(trigger = "myTrigger"))
 		@Publisher
@@ -1296,41 +1248,36 @@ public class EnableIntegrationTests {
 			return payload.toUpperCase();
 		}*/
 
-		@Override
 		@Transformer(inputChannel = "gatewayChannel")
 		public String transform(Message<String> message) {
-			assertTrue(message.getHeaders().containsKey("foo"));
-			assertEquals("FOO", message.getHeaders().get("foo"));
-			assertTrue(message.getHeaders().containsKey("calledMethod"));
-			assertEquals("echo", message.getHeaders().get("calledMethod"));
+			assertThat(message.getHeaders()).containsKey("foo");
+			assertThat(message.getHeaders().get("foo")).isEqualTo("FOO");
+			assertThat(message.getHeaders()).containsKey("calledMethod");
+			assertThat(message.getHeaders().get("calledMethod")).isEqualTo("echo");
 			return this.handle(message.getPayload()) + Arrays.asList(new Throwable().getStackTrace()).toString();
 		}
 
-		@Override
 		@Transformer(inputChannel = "gatewayChannel2")
 		@UseSpelInvoker(compilerMode = "${xxxxxxxx:IMMEDIATE}")
 		public String transform2(Message<String> message) {
-			assertTrue(message.getHeaders().containsKey("foo"));
-			assertEquals("FOO", message.getHeaders().get("foo"));
-			assertTrue(message.getHeaders().containsKey("calledMethod"));
-			assertEquals("echo2", message.getHeaders().get("calledMethod"));
+			assertThat(message.getHeaders()).containsKey("foo");
+			assertThat(message.getHeaders().get("foo")).isEqualTo("FOO");
+			assertThat(message.getHeaders()).containsKey("calledMethod");
+			assertThat(message.getHeaders().get("calledMethod")).isEqualTo("echo2");
 			return this.handle(message.getPayload()) + "2" + Arrays.asList(new Throwable().getStackTrace()).toString();
 		}
 
-		@Override
 		@MyInboundChannelAdapter1
 		public Integer count() {
 			return this.counter.incrementAndGet();
 		}
 
-		@Override
 		@InboundChannelAdapter(value = "fooChannel",
 				poller = @Poller(trigger = "onlyOnceTrigger", maxMessagesPerPoll = "2"))
 		public String foo() {
 			return "foo";
 		}
 
-		@Override
 		@InboundChannelAdapter(value = "messageChannel", poller = @Poller(fixedDelay = "${poller.interval}",
 				maxMessagesPerPoll = "1"))
 		public Message<?> message() {
@@ -1354,44 +1301,37 @@ public class EnableIntegrationTests {
 
 		// metaAnnotation tests
 
-		@Override
 		@MyServiceActivator
 		public Integer annCount() {
 			return 0;
 		}
 
-		@Override
 		@MyServiceActivator1(inputChannel = "annInput1", autoStartup = "true",
 				adviceChain = { "annAdvice1" }, poller = @Poller(fixedRate = "2000"))
 		public Integer annCount1() {
 			return 0;
 		}
 
-		@Override
 		@MyServiceActivatorNoLocalAtts
 		public Integer annCount2() {
 			return 0;
 		}
 
-		@Override
 		@MyServiceActivator5
 		public Integer annCount5() {
 			return 0;
 		}
 
-		@Override
 		@MyServiceActivator8
 		public Integer annCount8() {
 			return 0;
 		}
 
-		@Override
 		@MyAggregator
 		public Integer annAgg1(List<?> messages) {
 			return 42;
 		}
 
-		@Override
 		@MyAggregatorDefaultOverrideDefaults
 		public Integer annAgg2(List<?> messages) {
 			return 42;
@@ -1401,7 +1341,6 @@ public class EnableIntegrationTests {
 		/*@BridgeFrom("")
 		public void invalidBridgeAnnotationMethod(Object payload) {}*/
 
-		@Override
 		@ServiceActivator(inputChannel = "monoChannel")
 		public Integer multiply(Integer value) {
 			return value * 2;
@@ -1682,27 +1621,6 @@ public class EnableIntegrationTests {
 
 		public static Object bar(Object o) {
 			return o;
-		}
-
-	}
-
-	public class RegexMatcher<T> extends BaseMatcher<T> {
-
-		private final String regex;
-
-		public RegexMatcher(String regex) {
-			this.regex = regex;
-		}
-
-		@Override
-		public boolean matches(Object o) {
-			return ((String) o).matches(regex);
-
-		}
-
-		@Override
-		public void describeTo(Description description) {
-			description.appendText("matches regex=");
 		}
 
 	}

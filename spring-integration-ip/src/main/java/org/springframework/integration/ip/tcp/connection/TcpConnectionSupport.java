@@ -1,5 +1,5 @@
 /*
- * Copyright 2001-2018 the original author or authors.
+ * Copyright 2001-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,6 +45,8 @@ import org.springframework.util.Assert;
  * (incoming).
  *
  * @author Gary Russell
+ * @author Artem Bilan
+ *
  * @since 2.0
  *
  */
@@ -114,7 +116,8 @@ public abstract class TcpConnectionSupport implements TcpConnection {
 	 */
 	public TcpConnectionSupport(Socket socket, boolean server, boolean lookupHost,
 			ApplicationEventPublisher applicationEventPublisher,
-			String connectionFactoryName) {
+			@Nullable String connectionFactoryName) {
+
 		this.socketInfo = new SocketInfo(socket);
 		this.server = server;
 		InetAddress inetAddress = socket.getInetAddress();
@@ -160,16 +163,20 @@ public abstract class TcpConnectionSupport implements TcpConnection {
 	 * @param isException true when this call is the result of an Exception.
 	 */
 	protected void closeConnection(boolean isException) {
-		TcpListener listener = getListener();
-		if (!(listener instanceof TcpConnectionInterceptor)) {
+		TcpListener tcpListener = getListener();
+		if (!(tcpListener instanceof TcpConnectionInterceptor)) {
 			close();
 		}
 		else {
-			TcpConnectionInterceptor outerInterceptor = (TcpConnectionInterceptor) listener;
-			while (outerInterceptor.getListener() instanceof TcpConnectionInterceptor) {
-				outerInterceptor = (TcpConnectionInterceptor) outerInterceptor.getListener();
+			TcpConnectionInterceptor outerListener = (TcpConnectionInterceptor) tcpListener;
+			while (outerListener.getListener() instanceof TcpConnectionInterceptor) {
+				TcpConnectionInterceptor nextListener = (TcpConnectionInterceptor) outerListener.getListener();
+				if (nextListener == null) {
+					break;
+				}
+				outerListener = nextListener;
 			}
-			outerInterceptor.close();
+			outerListener.close();
 			if (isException) {
 				// ensure physical close in case the interceptor did not close
 				this.close();
@@ -235,7 +242,7 @@ public abstract class TcpConnectionSupport implements TcpConnection {
 	 * Set the listener that will receive incoming Messages.
 	 * @param listener The listener.
 	 */
-	public void registerListener(TcpListener listener) {
+	public void registerListener(@Nullable TcpListener listener) {
 		this.listener = listener;
 		this.listenerRegisteredLatch.countDown();
 	}
@@ -257,7 +264,7 @@ public abstract class TcpConnectionSupport implements TcpConnection {
 	 * to.
 	 * @param sender the sender.
 	 */
-	public void registerSender(TcpSender sender) {
+	public void registerSender(@Nullable TcpSender sender) {
 		this.sender = sender;
 		if (sender != null) {
 			sender.addNewConnection(this);
@@ -342,11 +349,12 @@ public abstract class TcpConnectionSupport implements TcpConnection {
 	}
 
 	protected final void sendExceptionToListener(Exception e) {
-		if (!this.exceptionSent.getAndSet(true) && this.getListener() != null) {
+		TcpListener listenerForException = getListener();
+		if (!this.exceptionSent.getAndSet(true) && listenerForException != null) {
 			Map<String, Object> headers = Collections.singletonMap(IpHeaders.CONNECTION_ID,
 					(Object) this.getConnectionId());
 			ErrorMessage errorMessage = new ErrorMessage(e, headers);
-			this.getListener().onMessage(errorMessage);
+			listenerForException.onMessage(errorMessage);
 		}
 	}
 

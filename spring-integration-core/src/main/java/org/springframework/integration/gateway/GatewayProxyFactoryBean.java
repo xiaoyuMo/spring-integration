@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,7 +45,6 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanInitializationException;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.core.MethodParameter;
-import org.springframework.core.convert.ConversionService;
 import org.springframework.core.task.AsyncListenableTaskExecutor;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
@@ -62,7 +61,6 @@ import org.springframework.integration.expression.ValueExpression;
 import org.springframework.integration.support.DefaultMessageBuilderFactory;
 import org.springframework.integration.support.channel.BeanFactoryChannelResolver;
 import org.springframework.integration.support.management.TrackableComponent;
-import org.springframework.integration.support.utils.IntegrationUtils;
 import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -85,8 +83,11 @@ import reactor.core.publisher.Mono;
  * Generates a proxy for the provided service interface to enable interaction
  * with messaging components without application code being aware of them allowing
  * for POJO-style interaction.
- * This component is also aware of the {@link ConversionService} set on the enclosing {@link BeanFactory}
- * under the name {@link IntegrationUtils#INTEGRATION_CONVERSION_SERVICE_BEAN_NAME} to
+ * This component is also aware of the
+ * {@link org.springframework.core.convert.ConversionService} set on the enclosing {@link BeanFactory}
+ * under the name
+ * {@link org.springframework.integration.support.utils.IntegrationUtils#INTEGRATION_CONVERSION_SERVICE_BEAN_NAME}
+ * to
  * perform type conversions when necessary (thanks to Jon Schneider's contribution and suggestion in INT-1230).
  *
  * @author Mark Fisher
@@ -434,6 +435,7 @@ public class GatewayProxyFactoryBean extends AbstractEndpoint
 	}
 
 	@Override
+	@Nullable
 	public Object invoke(final MethodInvocation invocation) throws Throwable {
 		final Class<?> returnType = invocation.getMethod().getReturnType();
 		if (this.asyncExecutor != null && !Object.class.equals(returnType)) {
@@ -458,16 +460,17 @@ public class GatewayProxyFactoryBean extends AbstractEndpoint
 		if (Mono.class.isAssignableFrom(returnType)) {
 			return Mono.fromSupplier(new Invoker(invocation));
 		}
-		return this.doInvoke(invocation, true);
+		return doInvoke(invocation, true);
 	}
 
+	@Nullable
 	protected Object doInvoke(MethodInvocation invocation, boolean runningOnCallerThread) throws Throwable {
 		Method method = invocation.getMethod();
 		if (AopUtils.isToStringMethod(method)) {
 			return "gateway proxy for service interface [" + this.serviceInterface + "]";
 		}
 		try {
-			return this.invokeGatewayMethod(invocation, runningOnCallerThread);
+			return invokeGatewayMethod(invocation, runningOnCallerThread);
 		}
 		catch (Throwable e) { //NOSONAR - ok to catch, rethrown below
 			this.rethrowExceptionCauseIfPossible(e, invocation.getMethod());
@@ -631,10 +634,10 @@ public class GatewayProxyFactoryBean extends AbstractEndpoint
 		}
 		Map<String, Object> headers = null;
 		// We don't want to eagerly resolve the error channel here
-		Object errorChannel = this.errorChannel == null ? this.errorChannelName : this.errorChannel;
-		if (errorChannel != null && method.getReturnType().equals(void.class)) {
+		Object errorChannelForVoidReturn = this.errorChannel == null ? this.errorChannelName : this.errorChannel;
+		if (errorChannelForVoidReturn != null && method.getReturnType().equals(void.class)) {
 			headers = new HashMap<>();
-			headers.put(MessageHeaders.ERROR_CHANNEL, errorChannel);
+			headers.put(MessageHeaders.ERROR_CHANNEL, errorChannelForVoidReturn);
 		}
 
 		if (getMessageBuilderFactory() instanceof DefaultMessageBuilderFactory) {
@@ -709,7 +712,10 @@ public class GatewayProxyFactoryBean extends AbstractEndpoint
 			gateway.setRequestTimeout(-1);
 		}
 		else if (requestTimeout instanceof ValueExpression) {
-			gateway.setRequestTimeout(requestTimeout.getValue(Long.class));
+			Long timeout = requestTimeout.getValue(Long.class);
+			if (timeout != null) {
+				gateway.setRequestTimeout(timeout);
+			}
 		}
 		else {
 			messageMapper.setSendTimeoutExpression(requestTimeout);
@@ -718,7 +724,10 @@ public class GatewayProxyFactoryBean extends AbstractEndpoint
 			gateway.setReplyTimeout(-1);
 		}
 		else if (replyTimeout instanceof ValueExpression) {
-			gateway.setReplyTimeout(replyTimeout.getValue(Long.class));
+			Long timeout = replyTimeout.getValue(Long.class);
+			if (timeout != null) {
+				gateway.setReplyTimeout(timeout);
+			}
 		}
 		else {
 			messageMapper.setReplyTimeoutExpression(replyTimeout);
@@ -751,6 +760,7 @@ public class GatewayProxyFactoryBean extends AbstractEndpoint
 	}
 
 	@SuppressWarnings("unchecked")
+	@Nullable
 	private <T> T convert(Object source, Class<T> expectedReturnType) {
 		if (Future.class.isAssignableFrom(expectedReturnType)) {
 			return (T) source;

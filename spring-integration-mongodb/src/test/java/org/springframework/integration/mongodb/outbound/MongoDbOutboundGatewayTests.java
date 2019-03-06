@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-2018 the original author or authors.
+ * Copyright 2016-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,8 @@
 
 package org.springframework.integration.mongodb.outbound;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 import java.util.Arrays;
 import java.util.List;
@@ -27,7 +25,6 @@ import java.util.function.Function;
 
 import org.bson.Document;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -37,6 +34,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.MongoDbFactory;
 import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoOperations;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.convert.MongoConverter;
 import org.springframework.data.mongodb.core.query.BasicQuery;
 import org.springframework.data.mongodb.core.query.Query;
@@ -49,18 +47,16 @@ import org.springframework.integration.support.MessageBuilder;
 import org.springframework.integration.test.util.TestUtils;
 import org.springframework.messaging.Message;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
-
-import com.mongodb.client.MongoCollection;
+import org.springframework.test.context.junit4.SpringRunner;
 
 /**
- * @author Xavier Padró
- * @author Gary Russell
+ * @author Xavier Padr?
+ * @author Gary Rssell
+ * @author Artem Bilan
+ *
  * @since 5.0
  */
-@ContextConfiguration
-@RunWith(SpringJUnit4ClassRunner.class)
+@RunWith(SpringRunner.class)
 @DirtiesContext
 public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 
@@ -96,33 +92,28 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		mongoTemplate.dropCollection(COLLECTION_NAME);
 	}
 
-	@SuppressWarnings("ConstantConditions")
 	@Test
 	@MongoDbAvailable
 	public void testNoFactorySpecified() {
-		MongoDbFactory nullFactory = null;
 
 		try {
-			new MongoDbOutboundGateway(nullFactory);
-			Assert.fail("Expected the test case to throw an IllegalArgumentException");
+			new MongoDbOutboundGateway((MongoDbFactory) null);
+			fail("Expected the test case to throw an IllegalArgumentException");
 		}
 		catch (IllegalArgumentException e) {
-			assertEquals("MongoDbFactory translator must not be null!", e.getMessage());
+			assertThat(e.getMessage()).isEqualTo("MongoDbFactory translator must not be null!");
 		}
 	}
 
-	@SuppressWarnings("ConstantConditions")
 	@Test
 	@MongoDbAvailable
 	public void testNoTemplateSpecified() {
-		MongoOperations mongoTemplate = null;
-
 		try {
-			new MongoDbOutboundGateway(mongoTemplate);
-			Assert.fail("Expected the test case to throw an IllegalArgumentException");
+			new MongoDbOutboundGateway((MongoTemplate) null);
+			fail("Expected the test case to throw an IllegalArgumentException");
 		}
 		catch (IllegalArgumentException e) {
-			assertEquals("mongoTemplate must not be null.", e.getMessage());
+			assertThat(e.getMessage()).isEqualTo("mongoTemplate must not be null.");
 		}
 	}
 
@@ -135,10 +126,10 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		try {
 			gateway.afterPropertiesSet();
 			gateway.handleRequestMessage(message);
-			Assert.fail("Expected the test case to throw an IllegalArgumentException");
+			fail("Expected the test case to throw an IllegalArgumentException");
 		}
 		catch (IllegalStateException e) {
-			assertEquals("no query or collectionCallback is specified", e.getMessage());
+			assertThat(e.getMessage()).isEqualTo("no query or collectionCallback is specified");
 		}
 	}
 
@@ -154,7 +145,7 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		Object result = gateway.handleRequestMessage(message);
 
 		List<Person> persons = getPersonsFromResult(result);
-		assertEquals(2, persons.size());
+		assertThat(persons.size()).isEqualTo(2);
 	}
 
 	@Test
@@ -174,7 +165,7 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 
 		Person person = (Person) result;
 
-		assertEquals("Xavi", person.getName());
+		assertThat(person.getName()).isEqualTo("Xavi");
 	}
 
 	@Test
@@ -185,16 +176,16 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		gateway.setMongoConverter(mongoConverter);
 		try {
 			gateway.afterPropertiesSet();
-			Assert.fail("Expected the test case to throw an IllegalStateException");
+			fail("Expected the test case to throw an IllegalStateException");
 		}
 		catch (IllegalStateException e) {
-			assertEquals("no query or collectionCallback is specified", e.getMessage());
+			assertThat(e.getMessage()).isEqualTo("no query or collectionCallback is specified");
 		}
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testListOfResultsWithQueryExpression() throws Exception {
+	public void testListOfResultsWithQueryExpression() {
 		Message<String> message = MessageBuilder.withPayload("{}").build();
 		MongoDbOutboundGateway gateway = createGateway();
 		gateway.setEntityClass(Person.class);
@@ -204,12 +195,12 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		Object result = gateway.handleRequestMessage(message);
 
 		List<Person> persons = getPersonsFromResult(result);
-		assertEquals(4, persons.size());
+		assertThat(persons.size()).isEqualTo(4);
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testListOfResultsWithQueryExpressionReturningOneResult() throws Exception {
+	public void testListOfResultsWithQueryExpressionReturningOneResult() {
 		Message<String> message = MessageBuilder.withPayload("{name : 'Xavi'}").build();
 		MongoDbOutboundGateway gateway = createGateway();
 		gateway.setEntityClass(Person.class);
@@ -219,13 +210,13 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		Object result = gateway.handleRequestMessage(message);
 
 		List<Person> persons = getPersonsFromResult(result);
-		assertEquals(1, persons.size());
-		assertEquals("Xavi", persons.get(0).getName());
+		assertThat(persons.size()).isEqualTo(1);
+		assertThat(persons.get(0).getName()).isEqualTo("Xavi");
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testSingleResultWithQueryExpressionAsString() throws Exception {
+	public void testSingleResultWithQueryExpressionAsString() {
 		Message<String> message = MessageBuilder.withPayload("{name : 'Artem'}").build();
 		MongoDbOutboundGateway gateway = createGateway();
 		gateway.setQueryExpression(PARSER.parseExpression("payload"));
@@ -236,12 +227,12 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		Object result = gateway.handleRequestMessage(message);
 
 		Person person = (Person) result;
-		assertEquals("Artem", person.getName());
+		assertThat(person.getName()).isEqualTo("Artem");
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testSingleResultWithQueryExpressionAsQuery() throws Exception {
+	public void testSingleResultWithQueryExpressionAsQuery() {
 		Message<String> message = MessageBuilder.withPayload("").build();
 		MongoDbOutboundGateway gateway = createGateway();
 		gateway.setQueryExpression(PARSER.parseExpression("new BasicQuery('{''name'' : ''Gary''}')"));
@@ -252,7 +243,7 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		Object result = gateway.handleRequestMessage(message);
 
 		Person person = (Person) result;
-		assertEquals("Gary", person.getName());
+		assertThat(person.getName()).isEqualTo("Gary");
 	}
 
 	@Test
@@ -267,12 +258,12 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		Object result = gateway.handleRequestMessage(message);
 
 		Document person = (Document) result;
-		assertEquals("Xavi", person.get("name"));
+		assertThat(person.get("name")).isEqualTo("Xavi");
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testWithNullCollectionNameExpression() throws Exception {
+	public void testWithNullCollectionNameExpression() {
 		MongoDbOutboundGateway gateway = new MongoDbOutboundGateway(mongoDbFactory);
 		gateway.setBeanFactory(beanFactory);
 		gateway.setQueryExpression(new LiteralExpression("{name : 'Xavi'}"));
@@ -280,16 +271,16 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 
 		try {
 			gateway.afterPropertiesSet();
-			Assert.fail("Expected the test case to throw an IllegalArgumentException");
+			fail("Expected the test case to throw an IllegalArgumentException");
 		}
 		catch (IllegalStateException e) {
-			assertEquals("no collection name specified", e.getMessage());
+			assertThat(e.getMessage()).isEqualTo("no collection name specified");
 		}
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testWithCollectionNameExpressionSpecified() throws Exception {
+	public void testWithCollectionNameExpressionSpecified() {
 		Message<String> message = MessageBuilder.withPayload("").build();
 		MongoDbOutboundGateway gateway = createGateway();
 		gateway.setQueryExpression(new LiteralExpression("{name : 'Xavi'}"));
@@ -299,40 +290,40 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 
 		Object result = gateway.handleRequestMessage(message);
 
-		assertNull(result);
+		assertThat(result).isNull();
 		LiteralExpression collectionNameExpression =
 				(LiteralExpression) TestUtils.getPropertyValue(gateway, "collectionNameExpression");
-		assertNotNull(collectionNameExpression);
-		assertEquals("anotherCollection", collectionNameExpression.getValue());
+		assertThat(collectionNameExpression).isNotNull();
+		assertThat(collectionNameExpression.getValue()).isEqualTo("anotherCollection");
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testWithCollectionCallbackCount() throws Exception {
+	public void testWithCollectionCallbackCount() {
 		Message<String> message = MessageBuilder.withPayload("").build();
 		MongoDbOutboundGateway gateway = createGateway();
 		gateway.setEntityClass(Person.class);
 		gateway.setCollectionNameExpression(new LiteralExpression("data"));
 
-		gateway.setCollectionCallback(MongoCollection::countDocuments);
+		gateway.setMessageCollectionCallback((collection, requestMessage) -> collection.countDocuments());
 		gateway.afterPropertiesSet();
 
 		long result = (long) gateway.handleRequestMessage(message);
 
-		assertEquals(4, result);
+		assertThat(result).isEqualTo(4);
 	}
 
 	@Test
 	@MongoDbAvailable
-	public void testWithCollectionCallbackFindOne() throws Exception {
-		Message<String> message = MessageBuilder.withPayload("").build();
+	public void testWithCollectionCallbackFindOne() {
+		Message<String> message = MessageBuilder.withPayload("Mike").build();
 		MongoDbOutboundGateway gateway = createGateway();
 		gateway.setEntityClass(Person.class);
 		gateway.setCollectionNameExpression(new LiteralExpression("data"));
 		gateway.setRequiresReply(false);
 
-		gateway.setCollectionCallback(collection -> {
-			collection.insertOne(new Document("name", "Mike"));
+		gateway.setMessageCollectionCallback((collection, requestMessage) -> {
+			collection.insertOne(new Document("name", requestMessage.getPayload()));
 			return null;
 		});
 		gateway.afterPropertiesSet();
@@ -340,8 +331,8 @@ public class MongoDbOutboundGatewayTests extends MongoDbAvailableTests {
 		gateway.handleRequestMessage(message);
 
 		List<Person> persons = this.mongoTemplate.find(new Query(), Person.class, COLLECTION_NAME);
-		assertEquals(5, persons.size());
-		assertTrue(persons.stream().anyMatch(p -> p.getName().equals("Mike")));
+		assertThat(persons.size()).isEqualTo(5);
+		assertThat(persons.stream().anyMatch(p -> p.getName().equals("Mike"))).isTrue();
 	}
 
 	@SuppressWarnings("unchecked")

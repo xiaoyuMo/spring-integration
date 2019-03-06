@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 package org.springframework.integration.endpoint;
 
-import org.springframework.beans.factory.BeanInitializationException;
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.core.AttributeAccessor;
 import org.springframework.integration.core.MessageProducer;
@@ -26,6 +26,7 @@ import org.springframework.integration.support.DefaultErrorMessageStrategy;
 import org.springframework.integration.support.ErrorMessageStrategy;
 import org.springframework.integration.support.ErrorMessageUtils;
 import org.springframework.integration.support.management.TrackableComponent;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
@@ -48,15 +49,15 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 
 	private ErrorMessageStrategy errorMessageStrategy = new DefaultErrorMessageStrategy();
 
-	private volatile MessageChannel outputChannel;
+	private MessageChannel outputChannel;
 
-	private volatile String outputChannelName;
+	private String outputChannelName;
 
-	private volatile MessageChannel errorChannel;
+	private MessageChannel errorChannel;
 
-	private volatile String errorChannelName;
+	private String errorChannelName;
 
-	private volatile boolean shouldTrack = false;
+	private boolean shouldTrack = false;
 
 	protected MessageProducerSupport() {
 		this.setPhase(Integer.MAX_VALUE / 2);
@@ -73,6 +74,7 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 	 * @param outputChannelName the channel name.
 	 * @since 4.3
 	 */
+	@Override
 	public void setOutputChannelName(String outputChannelName) {
 		Assert.hasText(outputChannelName, "'outputChannelName' must not be null or empty");
 		this.outputChannelName = outputChannelName;
@@ -80,13 +82,10 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 
 	@Override
 	public MessageChannel getOutputChannel() {
-		if (this.outputChannelName != null) {
-			synchronized (this) {
-				if (this.outputChannelName != null) {
-					this.outputChannel = getChannelResolver().resolveDestination(this.outputChannelName);
-					this.outputChannelName = null;
-				}
-			}
+		String channelName = this.outputChannelName;
+		if (channelName != null) {
+			this.outputChannel = getChannelResolver().resolveDestination(channelName);
+			this.outputChannelName = null;
 		}
 		return this.outputChannel;
 	}
@@ -113,14 +112,12 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 	 * @return the channel or null.
 	 * @since 4.3
 	 */
+	@Nullable
 	public MessageChannel getErrorChannel() {
-		if (this.errorChannelName != null) {
-			synchronized (this) {
-				if (this.errorChannelName != null) {
-					this.errorChannel = getChannelResolver().resolveDestination(this.errorChannelName);
-					this.errorChannelName = null;
-				}
-			}
+		String channelName = this.errorChannelName;
+		if (channelName != null) {
+			this.errorChannel = getChannelResolver().resolveDestination(channelName);
+			this.errorChannelName = null;
 		}
 		return this.errorChannel;
 	}
@@ -163,15 +160,10 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 
 	@Override
 	protected void onInit() {
-		try {
-			super.onInit();
-		}
-		catch (Exception e) {
-			throw new BeanInitializationException("Cannot initialize: " + this, e);
-		}
-
-		if (this.getBeanFactory() != null) {
-			this.messagingTemplate.setBeanFactory(this.getBeanFactory());
+		super.onInit();
+		BeanFactory beanFactory = getBeanFactory();
+		if (beanFactory != null) {
+			this.messagingTemplate.setBeanFactory(beanFactory);
 		}
 
 	}
@@ -192,19 +184,22 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 	protected void doStop() {
 	}
 
-	protected void sendMessage(Message<?> message) {
+	protected void sendMessage(Message<?> messageArg) {
+		Message<?> message = messageArg;
 		if (message == null) {
 			throw new MessagingException("cannot send a null message");
 		}
 		if (this.shouldTrack) {
-			message = MessageHistory.write(message, this, this.getMessageBuilderFactory());
+			message = MessageHistory.write(message, this, getMessageBuilderFactory());
 		}
 		try {
-			this.messagingTemplate.send(getOutputChannel(), message);
+			MessageChannel messageChannel = getOutputChannel();
+			Assert.state(messageChannel != null, "The 'outputChannel' or `outputChannelName` must be configured");
+			this.messagingTemplate.send(messageChannel, message);
 		}
-		catch (RuntimeException e) {
-			if (!sendErrorMessageIfNecessary(message, e)) {
-				throw e;
+		catch (RuntimeException ex) {
+			if (!sendErrorMessageIfNecessary(message, ex)) {
+				throw ex;
 			}
 		}
 	}
@@ -217,9 +212,9 @@ public abstract class MessageProducerSupport extends AbstractEndpoint implements
 	 * @since 4.3.10
 	 */
 	protected final boolean sendErrorMessageIfNecessary(Message<?> message, RuntimeException exception) {
-		MessageChannel errorChannel = getErrorChannel();
-		if (errorChannel != null) {
-			this.messagingTemplate.send(errorChannel, buildErrorMessage(message, exception));
+		MessageChannel channel = getErrorChannel();
+		if (channel != null) {
+			this.messagingTemplate.send(channel, buildErrorMessage(message, exception));
 			return true;
 		}
 		return false;

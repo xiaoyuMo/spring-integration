@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,19 +16,15 @@
 
 package org.springframework.integration.mongodb.store;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
 
 import org.bson.Document;
-import org.hamcrest.Matchers;
 import org.junit.Ignore;
 import org.junit.Test;
 
 import org.springframework.context.support.ClassPathXmlApplicationContext;
-import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.data.convert.ReadingConverter;
 import org.springframework.data.mongodb.MongoDbFactory;
@@ -40,7 +36,6 @@ import org.springframework.integration.mongodb.rules.MongoDbAvailable;
 import org.springframework.integration.store.AbstractMessageGroupStore;
 import org.springframework.integration.store.MessageStore;
 import org.springframework.integration.support.MessageBuilder;
-import org.springframework.integration.test.util.TestUtils;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.util.StopWatch;
@@ -58,9 +53,7 @@ public class ConfigurableMongoDbMessageGroupStoreTests extends AbstractMongoDbMe
 	protected ConfigurableMongoDbMessageStore getMessageGroupStore() throws Exception {
 		MongoDbFactory mongoDbFactory = new SimpleMongoDbFactory(new MongoClient(), "test");
 		ConfigurableMongoDbMessageStore mongoDbMessageStore = new ConfigurableMongoDbMessageStore(mongoDbFactory);
-		GenericApplicationContext testApplicationContext = TestUtils.createTestApplicationContext();
-		testApplicationContext.refresh();
-		mongoDbMessageStore.setApplicationContext(testApplicationContext);
+		mongoDbMessageStore.setApplicationContext(this.testApplicationContext);
 		mongoDbMessageStore.afterPropertiesSet();
 		return mongoDbMessageStore;
 	}
@@ -79,7 +72,7 @@ public class ConfigurableMongoDbMessageGroupStoreTests extends AbstractMongoDbMe
 	@Test
 	@Ignore("The performance test. Enough slow. Also needs the release strategy changed to size() == 1000")
 	@MongoDbAvailable
-	public void messageGroupStoreLazyLoadPerformance() throws Exception {
+	public void messageGroupStoreLazyLoadPerformance() {
 		cleanupCollections(new SimpleMongoDbFactory(new MongoClient(), "test"));
 
 		StopWatch watch = new StopWatch("Lazy-Load Performance");
@@ -111,7 +104,7 @@ public class ConfigurableMongoDbMessageGroupStoreTests extends AbstractMongoDbMe
 					.build());
 		}
 
-		assertNotNull(output.receive(20000));
+		assertThat(output.receive(20000)).isNotNull();
 
 		watch.stop();
 
@@ -128,7 +121,7 @@ public class ConfigurableMongoDbMessageGroupStoreTests extends AbstractMongoDbMe
 
 		TestGateway gateway = context.getBean(TestGateway.class);
 		String result = gateway.service("foo");
-		assertEquals("FOO", result);
+		assertThat(result).isEqualTo("FOO");
 		context.close();
 	}
 
@@ -141,7 +134,7 @@ public class ConfigurableMongoDbMessageGroupStoreTests extends AbstractMongoDbMe
 		context.refresh();
 
 		Object priorityChannel = context.getBean("priorityChannel");
-		assertThat(priorityChannel, Matchers.instanceOf(PriorityChannel.class));
+		assertThat(priorityChannel).isInstanceOf(PriorityChannel.class);
 
 		QueueChannel channel = (QueueChannel) priorityChannel;
 
@@ -161,32 +154,32 @@ public class ConfigurableMongoDbMessageGroupStoreTests extends AbstractMongoDbMe
 		channel.send(message);
 
 		Message<?> receive = channel.receive(1000);
-		assertNotNull(receive);
-		assertEquals("3", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("3");
 
 		receive = channel.receive(1000);
-		assertNotNull(receive);
-		assertEquals("31", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("31");
 
 		receive = channel.receive(1000);
-		assertNotNull(receive);
-		assertEquals("2", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("2");
 
 		receive = channel.receive(1000);
-		assertNotNull(receive);
-		assertEquals("1", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("1");
 
 		receive = channel.receive(1000);
-		assertNotNull(receive);
-		assertEquals("0", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("0");
 
 		receive = channel.receive(1000);
-		assertNotNull(receive);
-		assertEquals("-1", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("-1");
 
 		receive = channel.receive(1000);
-		assertNotNull(receive);
-		assertEquals("none", receive.getPayload());
+		assertThat(receive).isNotNull();
+		assertThat(receive.getPayload()).isEqualTo("none");
 
 		context.close();
 	}

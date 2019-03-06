@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2017 the original author or authors.
+ * Copyright 2002-2018 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import org.springframework.integration.context.IntegrationContextUtils;
 import org.springframework.integration.core.ErrorMessagePublisher;
 import org.springframework.integration.support.ErrorMessageStrategy;
 import org.springframework.integration.support.MessagingExceptionWrapper;
+import org.springframework.lang.Nullable;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
@@ -71,6 +72,7 @@ public class MessagePublishingErrorHandler extends ErrorMessagePublisher impleme
 	 * @return the error channel.
 	 * @since 4.3
 	 */
+	@Nullable
 	public MessageChannel getDefaultErrorChannel() {
 		return getChannel();
 	}
@@ -115,6 +117,7 @@ public class MessagePublishingErrorHandler extends ErrorMessagePublisher impleme
 		}
 	}
 
+	@Nullable
 	private MessageChannel resolveErrorChannel(Throwable t) {
 		Throwable actualThrowable = t;
 		if (t instanceof MessagingExceptionWrapper) {
@@ -123,7 +126,7 @@ public class MessagePublishingErrorHandler extends ErrorMessagePublisher impleme
 		Message<?> failedMessage = (actualThrowable instanceof MessagingException) ?
 				((MessagingException) actualThrowable).getFailedMessage() : null;
 		if (getDefaultErrorChannel() == null && getChannelResolver() != null) {
-			setChannel(getChannelResolver().resolveDestination(
+			setChannel(getChannelResolver().resolveDestination(// NOSONAR not null
 					IntegrationContextUtils.ERROR_CHANNEL_BEAN_NAME));
 		}
 
@@ -134,10 +137,15 @@ public class MessagePublishingErrorHandler extends ErrorMessagePublisher impleme
 		if (errorChannelHeader instanceof MessageChannel) {
 			return (MessageChannel) errorChannelHeader;
 		}
-		Assert.isInstanceOf(String.class, errorChannelHeader,
+		Assert.isInstanceOf(String.class, errorChannelHeader, () ->
 				"Unsupported error channel header type. Expected MessageChannel or String, but actual type is [" +
-						errorChannelHeader.getClass() + "]");
-		return getChannelResolver().resolveDestination((String) errorChannelHeader);
+						errorChannelHeader.getClass() + "]"); // NOSONAR never null here
+		if (getChannelResolver() != null) {
+			return getChannelResolver().resolveDestination((String) errorChannelHeader); // NOSONAR not null
+		}
+		else {
+			return null;
+		}
 	}
 
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,8 @@
 
 package org.springframework.integration.message;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.SynchronousQueue;
@@ -26,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.Test;
 
+import org.springframework.beans.factory.BeanFactory;
 import org.springframework.integration.channel.QueueChannel;
 import org.springframework.integration.endpoint.PollingConsumer;
 import org.springframework.integration.handler.MethodInvokingMessageHandler;
@@ -39,13 +39,15 @@ import org.springframework.scheduling.support.PeriodicTrigger;
 /**
  * @author Mark Fisher
  * @author Oleg Zhurakousky
+ * @author Artem Bilan
  */
 public class MethodInvokingMessageHandlerTests {
 
 	@Test
 	public void validMethod() {
 		MethodInvokingMessageHandler handler = new MethodInvokingMessageHandler(new TestSink(), "validMethod");
-		handler.handleMessage(new GenericMessage<String>("test"));
+		handler.setBeanFactory(mock(BeanFactory.class));
+		handler.handleMessage(new GenericMessage<>("test"));
 	}
 
 	@Test
@@ -55,13 +57,14 @@ public class MethodInvokingMessageHandlerTests {
 
 	@Test(expected = MessagingException.class)
 	public void methodWithReturnValue() {
-		Message<?> message = new GenericMessage<String>("test");
+		Message<?> message = new GenericMessage<>("test");
 		try {
-			MethodInvokingMessageHandler handler = new MethodInvokingMessageHandler(new TestSink(), "methodWithReturnValue");
+			MethodInvokingMessageHandler handler = new MethodInvokingMessageHandler(new TestSink(),
+					"methodWithReturnValue");
 			handler.handleMessage(message);
 		}
 		catch (MessagingException e) {
-			assertEquals(e.getFailedMessage(), message);
+			assertThat(message).isEqualTo(e.getFailedMessage());
 			throw e;
 		}
 	}
@@ -74,22 +77,23 @@ public class MethodInvokingMessageHandlerTests {
 	@Test
 	public void subscription() throws Exception {
 		TestApplicationContext context = TestUtils.createTestApplicationContext();
-		SynchronousQueue<String> queue = new SynchronousQueue<String>();
+		SynchronousQueue<String> queue = new SynchronousQueue<>();
 		TestBean testBean = new TestBean(queue);
 		QueueChannel channel = new QueueChannel();
 		context.registerChannel("channel", channel);
-		Message<String> message = new GenericMessage<String>("testing");
+		Message<String> message = new GenericMessage<>("testing");
 		channel.send(message);
-		assertNull(queue.poll());
+		assertThat(queue.poll()).isNull();
 		MethodInvokingMessageHandler handler = new MethodInvokingMessageHandler(testBean, "foo");
+		handler.setBeanFactory(context);
 		PollingConsumer endpoint = new PollingConsumer(channel, handler);
 		endpoint.setTrigger(new PeriodicTrigger(10));
 		context.registerEndpoint("testEndpoint", endpoint);
 		context.refresh();
 		String result = queue.poll(2000, TimeUnit.MILLISECONDS);
-		assertNotNull(result);
-		assertEquals("testing", result);
-		context.stop();
+		assertThat(result).isNotNull();
+		assertThat(result).isEqualTo("testing");
+		context.close();
 	}
 
 

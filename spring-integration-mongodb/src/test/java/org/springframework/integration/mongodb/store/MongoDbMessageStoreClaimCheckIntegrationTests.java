@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,12 @@
 
 package org.springframework.integration.mongodb.store;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.Serializable;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import org.springframework.context.support.GenericApplicationContext;
@@ -41,6 +43,18 @@ import com.mongodb.MongoClient;
  */
 public class MongoDbMessageStoreClaimCheckIntegrationTests extends MongoDbAvailableTests {
 
+	private final GenericApplicationContext testApplicationContext = TestUtils.createTestApplicationContext();
+
+	@Before
+	public void setup() {
+		this.testApplicationContext.refresh();
+	}
+
+	@After
+	public void tearDown() {
+		this.testApplicationContext.close();
+	}
+
 	@Test
 	@MongoDbAvailable
 	public void stringPayload() throws Exception {
@@ -51,11 +65,11 @@ public class MongoDbMessageStoreClaimCheckIntegrationTests extends MongoDbAvaila
 		ClaimCheckOutTransformer checkout = new ClaimCheckOutTransformer(messageStore);
 		Message<?> originalMessage = MessageBuilder.withPayload("test1").build();
 		Message<?> claimCheckMessage = checkin.transform(originalMessage);
-		assertEquals(originalMessage.getHeaders().getId(), claimCheckMessage.getPayload());
+		assertThat(claimCheckMessage.getPayload()).isEqualTo(originalMessage.getHeaders().getId());
 		Message<?> checkedOutMessage = checkout.transform(claimCheckMessage);
-		assertEquals(claimCheckMessage.getPayload(), checkedOutMessage.getHeaders().getId());
-		assertEquals(originalMessage.getPayload(), checkedOutMessage.getPayload());
-		assertEquals(originalMessage, checkedOutMessage);
+		assertThat(checkedOutMessage.getHeaders().getId()).isEqualTo(claimCheckMessage.getPayload());
+		assertThat(checkedOutMessage.getPayload()).isEqualTo(originalMessage.getPayload());
+		assertThat(checkedOutMessage).isEqualTo(originalMessage);
 	}
 
 	@Test
@@ -72,11 +86,11 @@ public class MongoDbMessageStoreClaimCheckIntegrationTests extends MongoDbAvaila
 		payload.setIced(false);
 		Message<?> originalMessage = MessageBuilder.withPayload(payload).build();
 		Message<?> claimCheckMessage = checkin.transform(originalMessage);
-		assertEquals(originalMessage.getHeaders().getId(), claimCheckMessage.getPayload());
+		assertThat(claimCheckMessage.getPayload()).isEqualTo(originalMessage.getHeaders().getId());
 		Message<?> checkedOutMessage = checkout.transform(claimCheckMessage);
-		assertEquals(originalMessage.getPayload(), checkedOutMessage.getPayload());
-		assertEquals(claimCheckMessage.getPayload(), checkedOutMessage.getHeaders().getId());
-		assertEquals(originalMessage, checkedOutMessage);
+		assertThat(checkedOutMessage.getPayload()).isEqualTo(originalMessage.getPayload());
+		assertThat(checkedOutMessage.getHeaders().getId()).isEqualTo(claimCheckMessage.getPayload());
+		assertThat(checkedOutMessage).isEqualTo(originalMessage);
 	}
 
 	@Test
@@ -84,19 +98,17 @@ public class MongoDbMessageStoreClaimCheckIntegrationTests extends MongoDbAvaila
 	public void stringPayloadConfigurable() throws Exception {
 		MongoDbFactory mongoDbFactory = new SimpleMongoDbFactory(new MongoClient(), "test");
 		ConfigurableMongoDbMessageStore messageStore = new ConfigurableMongoDbMessageStore(mongoDbFactory);
-		GenericApplicationContext testApplicationContext = TestUtils.createTestApplicationContext();
-		testApplicationContext.refresh();
-		messageStore.setApplicationContext(testApplicationContext);
+		messageStore.setApplicationContext(this.testApplicationContext);
 		messageStore.afterPropertiesSet();
 		ClaimCheckInTransformer checkin = new ClaimCheckInTransformer(messageStore);
 		ClaimCheckOutTransformer checkout = new ClaimCheckOutTransformer(messageStore);
 		Message<?> originalMessage = MessageBuilder.withPayload("test1").build();
 		Message<?> claimCheckMessage = checkin.transform(originalMessage);
-		assertEquals(originalMessage.getHeaders().getId(), claimCheckMessage.getPayload());
+		assertThat(claimCheckMessage.getPayload()).isEqualTo(originalMessage.getHeaders().getId());
 		Message<?> checkedOutMessage = checkout.transform(claimCheckMessage);
-		assertEquals(claimCheckMessage.getPayload(), checkedOutMessage.getHeaders().getId());
-		assertEquals(originalMessage.getPayload(), checkedOutMessage.getPayload());
-		assertEquals(originalMessage, checkedOutMessage);
+		assertThat(checkedOutMessage.getHeaders().getId()).isEqualTo(claimCheckMessage.getPayload());
+		assertThat(checkedOutMessage.getPayload()).isEqualTo(originalMessage.getPayload());
+		assertThat(checkedOutMessage).isEqualTo(originalMessage);
 	}
 
 	@Test
@@ -104,9 +116,7 @@ public class MongoDbMessageStoreClaimCheckIntegrationTests extends MongoDbAvaila
 	public void objectPayloadConfigurable() throws Exception {
 		MongoDbFactory mongoDbFactory = new SimpleMongoDbFactory(new MongoClient(), "test");
 		ConfigurableMongoDbMessageStore messageStore = new ConfigurableMongoDbMessageStore(mongoDbFactory);
-		GenericApplicationContext testApplicationContext = TestUtils.createTestApplicationContext();
-		testApplicationContext.refresh();
-		messageStore.setApplicationContext(testApplicationContext);
+		messageStore.setApplicationContext(this.testApplicationContext);
 		messageStore.afterPropertiesSet();
 		ClaimCheckInTransformer checkin = new ClaimCheckInTransformer(messageStore);
 		ClaimCheckOutTransformer checkout = new ClaimCheckOutTransformer(messageStore);
@@ -116,18 +126,20 @@ public class MongoDbMessageStoreClaimCheckIntegrationTests extends MongoDbAvaila
 		payload.setIced(false);
 		Message<?> originalMessage = MessageBuilder.withPayload(payload).build();
 		Message<?> claimCheckMessage = checkin.transform(originalMessage);
-		assertEquals(originalMessage.getHeaders().getId(), claimCheckMessage.getPayload());
+		assertThat(claimCheckMessage.getPayload()).isEqualTo(originalMessage.getHeaders().getId());
 		Message<?> checkedOutMessage = checkout.transform(claimCheckMessage);
-		assertEquals(originalMessage.getPayload(), checkedOutMessage.getPayload());
-		assertEquals(claimCheckMessage.getPayload(), checkedOutMessage.getHeaders().getId());
-		assertEquals(originalMessage, checkedOutMessage);
+		assertThat(checkedOutMessage.getPayload()).isEqualTo(originalMessage.getPayload());
+		assertThat(checkedOutMessage.getHeaders().getId()).isEqualTo(claimCheckMessage.getPayload());
+		assertThat(checkedOutMessage).isEqualTo(originalMessage);
 	}
 
 	@SuppressWarnings("serial")
 	static class Beverage implements Serializable {
 
 		private String name;
+
 		private int shots;
+
 		private boolean iced;
 
 		@SuppressWarnings("unused")

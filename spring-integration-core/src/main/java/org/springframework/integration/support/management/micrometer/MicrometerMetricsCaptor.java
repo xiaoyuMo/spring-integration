@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 the original author or authors.
+ * Copyright 2018-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ import io.micrometer.core.instrument.Timer;
  * The Micrometer implementation of {@link MetricsCaptor}.
  *
  * @author Gary Russell
+ * @author Artem Bilan
  *
  * @since 5.0.4
  *
@@ -148,7 +149,7 @@ public class MicrometerMetricsCaptor implements MetricsCaptor {
 
 	}
 
-	protected static abstract class AbstractMeter<M extends Meter> implements MeterFacade {
+	protected abstract static class AbstractMeter<M extends Meter> implements MeterFacade {
 
 		protected final MeterRegistry meterRegistry; // NOSONAR
 
@@ -192,6 +193,19 @@ public class MicrometerMetricsCaptor implements MetricsCaptor {
 		@Override
 		public void record(long time, TimeUnit unit) {
 			this.timer.record(time, unit);
+		}
+
+		@Override
+		public int hashCode() {
+			return this.timer.hashCode();
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (obj == null || !getClass().equals(obj.getClass())) {
+				return false;
+			}
+			return this.timer.equals(((MicroTimer) obj).timer);
 		}
 
 	}
@@ -245,6 +259,19 @@ public class MicrometerMetricsCaptor implements MetricsCaptor {
 			this.counter.increment();
 		}
 
+		@Override
+		public int hashCode() {
+			return this.counter.hashCode();
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (obj == null || !getClass().equals(obj.getClass())) {
+				return false;
+			}
+			return this.counter.equals(((MicroCounter) obj).counter);
+		}
+
 	}
 
 	protected static class MicroGaugeBuilder implements GaugeBuilder {
@@ -289,6 +316,19 @@ public class MicrometerMetricsCaptor implements MetricsCaptor {
 		@Override
 		protected Gauge getMeter() {
 			return this.gauge;
+		}
+
+		@Override
+		public int hashCode() {
+			return this.gauge.hashCode();
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (obj == null || !getClass().equals(obj.getClass())) {
+				return false;
+			}
+			return this.gauge.equals(((MicroGauge) obj).gauge);
 		}
 
 	}

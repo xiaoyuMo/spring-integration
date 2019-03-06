@@ -1,5 +1,5 @@
 /*
- * Copyright 2009-2017 the original author or authors.
+ * Copyright 2009-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,7 @@
 
 package org.springframework.integration.monitor;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -28,18 +26,17 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
-import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
-import org.springframework.integration.channel.ChannelInterceptorAware;
 import org.springframework.integration.channel.interceptor.WireTap;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandlingException;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.GenericMessage;
+import org.springframework.messaging.support.InterceptableChannel;
 
 /**
  * @author Dave Syer
@@ -77,143 +74,118 @@ public class MessageChannelsMonitorIntegrationTests {
 
 	@Test
 	public void testRates() throws Exception {
-
-		ClassPathXmlApplicationContext context = createContext("anonymous-channel.xml", "anonymous");
-
-		try {
-
+		try (ClassPathXmlApplicationContext context = createContext("anonymous-channel.xml")) {
+			this.channel = context.getBean("anonymous", MessageChannel.class);
 			int before = service.getCounter();
 			CountDownLatch latch = new CountDownLatch(50);
 			service.setLatch(latch);
 			for (int i = 0; i < 50; i++) {
-				channel.send(new GenericMessage<String>("bar"));
+				channel.send(new GenericMessage<>("bar"));
 				Thread.sleep(20L);
 			}
-			assertTrue(latch.await(10, TimeUnit.SECONDS));
-			assertEquals(before + 50, service.getCounter());
+			assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+			assertThat(service.getCounter()).isEqualTo(before + 50);
 
 			// The handler monitor is registered under the endpoint id (since it is explicit)
 			int sends = messageChannelsMonitor.getChannelSendRate("" + channel).getCount();
-			assertEquals("No send statistics for input channel", 50, sends, 0.01);
+			assertThat(sends).as("No send statistics for input channel").isEqualTo(50);
 			long sendsLong = messageChannelsMonitor.getChannelSendRate("" + channel).getCountLong();
-			assertEquals("No send statistics for input channel", sendsLong, sends, 0.01);
+			assertThat(sends).as("No send statistics for input channel").isEqualTo(sendsLong);
 
 		}
-		finally {
-			context.close();
-		}
-
 	}
 
 	@Test
 	public void testErrors() throws Exception {
-
-		ClassPathXmlApplicationContext context = createContext("anonymous-channel.xml", "anonymous");
-		try {
+		try (ClassPathXmlApplicationContext context = createContext("anonymous-channel.xml")) {
+			this.channel = context.getBean("anonymous", MessageChannel.class);
 			int before = service.getCounter();
 			CountDownLatch latch = new CountDownLatch(10);
 			service.setLatch(latch);
 			for (int i = 0; i < 5; i++) {
-				channel.send(new GenericMessage<String>("bar"));
+				channel.send(new GenericMessage<>("bar"));
 				Thread.sleep(20L);
 			}
 			try {
-				channel.send(new GenericMessage<String>("fail"));
+				channel.send(new GenericMessage<>("fail"));
 			}
 			catch (MessageHandlingException e) {
 				// ignore
 			}
 			for (int i = 0; i < 5; i++) {
-				channel.send(new GenericMessage<String>("bar"));
+				channel.send(new GenericMessage<>("bar"));
 				Thread.sleep(20L);
 			}
-			assertTrue(latch.await(10, TimeUnit.SECONDS));
-			assertEquals(before + 10, service.getCounter());
+			assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+			assertThat(service.getCounter()).isEqualTo(before + 10);
 
 			// The handler monitor is registered under the endpoint id (since it is explicit)
 			int sends = messageChannelsMonitor.getChannelSendRate("" + channel).getCount();
-			assertEquals("No send statistics for input channel", 11, sends, 0.01);
+			assertThat(sends).as("No send statistics for input channel").isEqualTo(11);
 			int errors = messageChannelsMonitor.getChannelErrorRate("" + channel).getCount();
-			assertEquals("No error statistics for input channel", 1, errors, 0.01);
+			assertThat(errors).as("No error statistics for input channel").isEqualTo(1);
 		}
-		finally {
-			context.close();
-		}
-
 	}
 
 	@Test
 	public void testQueues() throws Exception {
-
-		ClassPathXmlApplicationContext context = createContext("queue-channel.xml", "queue");
-		try {
+		try (ClassPathXmlApplicationContext context = createContext("queue-channel.xml")) {
+			this.channel = context.getBean("queue", MessageChannel.class);
 			int before = service.getCounter();
 			CountDownLatch latch = new CountDownLatch(10);
 			service.setLatch(latch);
 			for (int i = 0; i < 5; i++) {
-				channel.send(new GenericMessage<String>("bar"));
+				channel.send(new GenericMessage<>("bar"));
 				Thread.sleep(20L);
 			}
 			try {
-				channel.send(new GenericMessage<String>("fail"));
+				channel.send(new GenericMessage<>("fail"));
 			}
 			catch (MessageHandlingException e) {
 				// ignore
 			}
 			for (int i = 0; i < 5; i++) {
-				channel.send(new GenericMessage<String>("bar"));
+				channel.send(new GenericMessage<>("bar"));
 				Thread.sleep(20L);
 			}
-			assertTrue(latch.await(10, TimeUnit.SECONDS));
-			assertEquals(before + 10, service.getCounter());
+			assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+			assertThat(service.getCounter()).isEqualTo(before + 10);
 
 			// The handler monitor is registered under the endpoint id (since it is explicit)
 			int sends = messageChannelsMonitor.getChannelSendRate("" + channel).getCount();
-			assertEquals("No send statistics for input channel", 11, sends);
+			assertThat(sends).as("No send statistics for input channel").isEqualTo(11);
 			int receives = messageChannelsMonitor.getChannelReceiveCount("" + channel);
-			assertEquals("No send statistics for input channel", 11, receives);
+			assertThat(receives).as("No send statistics for input channel").isEqualTo(11);
 			int errors = messageChannelsMonitor.getChannelErrorRate("" + channel).getCount();
-			assertEquals("Expect no errors for input channel (handler fails)", 0, errors);
+			assertThat(errors).as("Expect no errors for input channel (handler fails)").isEqualTo(0);
 		}
-		finally {
-			context.close();
-		}
-
 	}
 
 	private void doTest(String config, String channelName) throws Exception {
-
-		ClassPathXmlApplicationContext context = createContext(config, channelName);
-
-		try {
-
+		try (ClassPathXmlApplicationContext context = createContext(config)) {
+			this.channel = context.getBean(channelName, MessageChannel.class);
 			int before = service.getCounter();
 			CountDownLatch latch = new CountDownLatch(1);
 			service.setLatch(latch);
-			channel.send(new GenericMessage<String>("bar"));
-			assertTrue(latch.await(10, TimeUnit.SECONDS));
-			assertEquals(before + 1, service.getCounter());
+			channel.send(new GenericMessage<>("bar"));
+			assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+			assertThat(service.getCounter()).isEqualTo(before + 1);
 
 			// The handler monitor is registered under the endpoint id (since it is explicit)
 			int sends = messageChannelsMonitor.getChannelSendRate("" + channel).getCount();
-			assertEquals("No statistics for input channel", 1, sends, 0.01);
+			assertThat(sends).as("No statistics for input channel").isEqualTo(1);
 
-			assertThat(channel, Matchers.instanceOf(ChannelInterceptorAware.class));
-			List<ChannelInterceptor> channelInterceptors = ((ChannelInterceptorAware) channel).getChannelInterceptors();
-			assertEquals(1, channelInterceptors.size());
-			assertThat(channelInterceptors.get(0), Matchers.instanceOf(WireTap.class));
+			assertThat(channel).isInstanceOf(InterceptableChannel.class);
+			List<ChannelInterceptor> channelInterceptors = ((InterceptableChannel) channel).getInterceptors();
+			assertThat(channelInterceptors.size()).isEqualTo(1);
+			assertThat(channelInterceptors.get(0)).isInstanceOf(WireTap.class);
 		}
-		finally {
-			context.close();
-		}
-
 	}
 
-	private ClassPathXmlApplicationContext createContext(String config, String channelName) {
+	private ClassPathXmlApplicationContext createContext(String config) {
 		ClassPathXmlApplicationContext context = new ClassPathXmlApplicationContext(config, getClass());
-		context.getAutowireCapableBeanFactory().autowireBeanProperties(this,
-				AutowireCapableBeanFactory.AUTOWIRE_BY_TYPE, false);
-		channel = context.getBean(channelName, MessageChannel.class);
+		context.getAutowireCapableBeanFactory()
+				.autowireBeanProperties(this, AutowireCapableBeanFactory.AUTOWIRE_BY_TYPE, false);
 		return context;
 	}
 
@@ -238,6 +210,7 @@ public class MessageChannelsMonitorIntegrationTests {
 		public int getCounter() {
 			return counter;
 		}
+
 	}
 
 	@Aspect
